@@ -4,31 +4,24 @@ close
 
 # Ref
 # https://siril.readthedocs.io/en/stable/Commands.html
+# Uncalibrated currently looks slightly better, needs more debugging
 
 
 # Load, register and stack SHO images
 cd S
 convert S -out=../process
 cd ../process
-
-calibrate S -bias=../../../../calibration/masters/bias_stacked -flat=../../../../calibration/masters/flat_stacked
-# calibrate S -bias=../masters/bias_stacked -dark=../masters/pp_dark_stacked -flat=../masters/pp_flat_stacked -cc=dark
-
-# remove background gradient
+#calibrate S -bias=../../../../calibration/masters/bias -flat=../../../../calibration/masters/flat_S
 seqsubsky S 1
 register bkg_S -2pass 
-
-# 1.8 sigma FWHM outlier removal
 seqapplyreg bkg_S -filter-wfwhm=1.8k
-
-# winsorized rejection (default) at +/- 3 sigma
 stack r_bkg_S rej w 3 3 -norm=addscale -fastnorm -out=../stacks/stack_S
 cd ..
 
 cd H
 convert H -out=../process
 cd ../process
-calibrate H -bias=../../../../calibration/masters/bias_stacked -flat=../../../../calibration/masters/flat_stacked
+#calibrate H -bias=../../../../calibration/masters/bias -flat=../../../../calibration/masters/flat_H
 seqsubsky H 1
 register bkg_H -2pass 
 seqapplyreg bkg_H -filter-wfwhm=1.8k
@@ -38,7 +31,7 @@ cd ..
 cd O
 convert O -out=../process
 cd ../process
-calibrate O -bias=../../../../calibration/masters/bias_stacked -flat=../../../../calibration/masters/flat_stacked
+#calibrate O -bias=../../../../calibration/masters/bias -flat=../../../../calibration/masters/flat_O
 seqsubsky O 1
 register bkg_O -2pass 
 seqapplyreg bkg_O -filter-wfwhm=1.8k
@@ -124,14 +117,14 @@ save G
 pm "0.85*$O$ + 0.15*$H$"
 save B
 
-# Blue/gold
+# Blue/gold HOO
 # https://jonrista.com/the-astrophotographers-guide/pixinsights/narrow-band-combinations-with-pixelmath-hoo/
-pm "$H$"
-save R
-pm "0.85*$H$ + 0.15*$O$"
-save G
-pm "0.15*$H$ + 0.85*$O$"
-save B
+#pm "$H$"
+#save R
+#pm "0.85*$H$ + 0.15*$O$"
+#save G
+#pm "0.15*$H$ + 0.85*$O$"
+#save B
 
 # Compose and output
 rgbcomp R G B -out=rgb
@@ -144,14 +137,11 @@ save ..\unstretched_rgb
 # save ..\unstretched_rgb_denoised
 
 # save original version
+# - adjust midtone transfer
+# - increase saturation by 100% with no background threshold
 autostretch
-
-# midtone transfer function, low/mid/high
 mtf 0.20 0.5 1.0
-
-# increase saturation by 100%, with no threshold for background (default for 2nd arg = 1)
 satu 1 0
-
 save ..\output
 savetif ..\output -astro -deflate
 savejpg ..\output 90

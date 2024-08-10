@@ -2,39 +2,50 @@ requires 1.2.0
 
 close
 
+# Load, register, and stack LRGB images
+# Use bias and flat calibration frames
+# TODO: Use both versions for easy comparison
 cd L
 convert L -out=../process
 cd ../process
+#calibrate L -bias=../../../../calibration/masters/bias -flat=../../../../calibration/masters/flat_L
 seqsubsky L 1
 register bkg_L -2pass 
 seqapplyreg bkg_L -filter-wfwhm=1.8k
 stack r_bkg_L rej w 3 3 -norm=addscale -fastnorm -out=../stacks/stack_L
+cd ..
 
-cd ../R
+cd R
 convert R -out=../process
 cd ../process
+#calibrate R -bias=../../../../calibration/masters/bias -flat=../../../../calibration/masters/flat_R
 seqsubsky R 1
 register bkg_R -2pass 
 seqapplyreg bkg_R -filter-wfwhm=1.8k
 stack r_bkg_R rej w 3 3 -norm=addscale -fastnorm -out=../stacks/stack_R
+cd ..
 
-cd ../G
+cd G
 convert G -out=../process
 cd ../process
+#calibrate G -bias=../../../../calibration/masters/bias -flat=../../../../calibration/masters/flat_G
 seqsubsky G 1
 register bkg_G -2pass 
 seqapplyreg bkg_G -filter-wfwhm=1.8k
 stack r_bkg_G rej w 3 3 -norm=addscale -fastnorm -out=../stacks/stack_G
+cd ..
 
-cd ../B
+cd B
 convert B -out=../process
 cd ../process
+#calibrate B -bias=../../../../calibration/masters/bias -flat=../../../../calibration/masters/flat_B
 seqsubsky B 1
 register bkg_B -2pass 
 seqapplyreg bkg_B -filter-wfwhm=1.8k
 stack r_bkg_B rej w 3 3 -norm=addscale -fastnorm -out=../stacks/stack_B
+cd ..
 
-cd ../stacks
+cd stacks
 convert stacks
 register stacks -2pass
 seqapplyreg stacks -framing=min
@@ -49,7 +60,7 @@ save R
 load r_stacks_00003
 save L
 
-#deconvolution
+# deconvolution
 makepsf blind
 rl
 save L_deconv
@@ -59,16 +70,32 @@ rgbcomp R G B -out=rgb
 load rgb
 
 #compose LRGB
-rgbcomp -lum=L_deconv rgb -out=lrgb
-
-save ..\unstretched_lrgb
+rgbcomp -lum=L_deconv rgb -out=rgb
+save ..\unstretched_rgb
 
 #reduce noise using defaults
-denoise
-save ..\unstretched_denoised_lrgb
-#reduce green and stretch
+#denoise
+#save ..\unstretched_denoised_rgb
+
+# save original version
+# - adjust midtone transfer
+# - increase saturation by 100% with no background threshold
 rmgreen
 autostretch
 mtf 0.20 0.5 1.0
 satu 1 0
-save ..\stretched_lrgb
+save ..\output
+savetif ..\output -astro -deflate
+savejpg ..\output 90
+
+# save star free version
+rmgreen
+load ../unstretched_rgb
+starnet -stretch
+autostretch
+mtf 0.20 0.5 1.0
+satu 1 0
+save ..\output_noStars
+savetif ..\output_noStars -astro -deflate
+savejpg ..\output_noStars 90
+

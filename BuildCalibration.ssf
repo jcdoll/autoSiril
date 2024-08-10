@@ -10,15 +10,57 @@ close
 cd bias/08-05
 convert bias -out=./process
 cd ./process
-stack bias rej 3 3 -nonorm -out=../../../masters/bias_stacked
+stack bias rej 3 3 -nonorm -out=../../../masters/bias
 cd ../../..
 
-# Stack flat frames
-cd flat/08-05
-convert flat -out=./process
-cd ./process
-calibrate flat -bias=../../../masters/bias_stacked
-stack pp_flat rej 3 3 -norm=mul -out=../../../masters/flat_stacked
+# Stack flat frames (per filter)
+cd flat/08-09/L
+convert L -out=../process
+cd ../process
+calibrate L -bias=../../../masters/bias
+stack L rej 3 3 -norm=mul -out=../../../masters/flat_L
+cd ../../..
+
+cd flat/08-09/R
+convert R -out=../process
+cd ../process
+calibrate R -bias=../../../masters/bias
+stack R rej 3 3 -norm=mul -out=../../../masters/flat_R
+cd ../../..
+
+cd flat/08-09/G
+convert G -out=../process
+cd ../process
+calibrate G -bias=../../../masters/bias
+stack G rej 3 3 -norm=mul -out=../../../masters/flat_G
+cd ../../..
+
+cd flat/08-09/B
+convert B -out=../process
+cd ../process
+calibrate B -bias=../../../masters/bias
+stack B rej 3 3 -norm=mul -out=../../../masters/flat_B
+cd ../../..
+
+cd flat/08-09/S
+convert S -out=../process
+cd ../process
+calibrate S -bias=../../../masters/bias
+stack S rej 3 3 -norm=mul -out=../../../masters/flat_S
+cd ../../..
+
+cd flat/08-09/H
+convert H -out=../process
+cd ../process
+calibrate H -bias=../../../masters/bias
+stack H rej 3 3 -norm=mul -out=../../../masters/flat_H
+cd ../../..
+
+cd flat/08-09/O
+convert O -out=../process
+cd ../process
+calibrate O -bias=../../../masters/bias
+stack O rej 3 3 -norm=mul -out=../../../masters/flat_O
 cd ../../..
 
 # Darks
