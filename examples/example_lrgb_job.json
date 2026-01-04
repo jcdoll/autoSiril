@@ -1,0 +1,21 @@
+{
+  "name": "M42_Jan2024",
+  "type": "LRGB",
+  "calibration": {
+    "bias": "2024_01_15",
+    "darks": "2024_01_15",
+    "flats": "2024_01_20"
+  },
+  "lights": {
+    "L": ["M42/2024_01_15/L180", "M42/2024_01_20/L180"],
+    "R": ["M42/2024_01_15/R60"],
+    "G": ["M42/2024_01_15/G60"],
+    "B": ["M42/2024_01_15/B60"]
+  },
+  "output": "M42/processed",
+  "options": {
+    "fwhm_filter": 1.8,
+    "temp_tolerance": 2,
+    "denoise": false
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "IC1805_Nov2024",
+  "type": "HOO",
+  "calibration": {
+    "bias": "2024_11_15",
+    "darks": "2024_11_15",
+    "flats": "2024_11_20"
+  },
+  "lights": {
+    "H": ["IC1805/2024_11_25/H300"],
+    "O": ["IC1805/2024_11_25/O300", "IC1805/2024_11_26/O300"]
+  },
+  "output": "IC1805/processed",
+  "options": {
+    "fwhm_filter": 1.8,
+    "temp_tolerance": 2,
+    "palette": "HOO_natural"
+  }
+}

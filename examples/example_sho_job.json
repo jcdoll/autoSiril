@@ -1,0 +1,21 @@
+{
+  "name": "NGC7000_Dec2024",
+  "type": "SHO",
+  "calibration": {
+    "bias": "2024_12_01",
+    "darks": "2024_12_01",
+    "flats": "2024_12_05"
+  },
+  "lights": {
+    "S": ["NGC7000/2024_12_10/S300"],
+    "H": ["NGC7000/2024_12_10/H300", "NGC7000/2024_12_11/H300"],
+    "O": ["NGC7000/2024_12_10/O300"]
+  },
+  "output": "NGC7000/processed",
+  "options": {
+    "fwhm_filter": 2.0,
+    "temp_tolerance": 2,
+    "denoise": false,
+    "palette": "SHO_blue_gold"
+  }
+}

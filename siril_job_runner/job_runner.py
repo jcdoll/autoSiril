@@ -1,0 +1,312 @@
+"""
+Job runner - orchestrates the full processing pipeline.
+"""
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional, Protocol
+
+from .calibration import CalibrationManager, CalibrationDates
+from .composition import compose_and_stretch
+from .fits_utils import scan_multiple_directories, build_requirements_table, FrameInfo
+from .job_config import JobConfig, load_job
+from .logger import JobLogger
+from .preprocessing import preprocess_with_exposure_groups
+
+
+class SirilInterface(Protocol):
+    """Protocol for Siril interface."""
+    pass  # Methods defined in other modules
+
+
+@dataclass
+class ValidationResult:
+    """Result of job validation."""
+
+    valid: bool
+    frames: list[FrameInfo]
+    requirements: list
+    missing_calibration: list[str]
+    buildable_calibration: list[str]
+    message: str
+
+
+class JobRunner:
+    """Orchestrates the full job processing pipeline."""
+
+    def __init__(
+        self,
+        job_path: Path,
+        base_path: Path,
+        siril: Optional[SirilInterface] = None,
+        dry_run: bool = False,
+    ):
+        self.job_path = Path(job_path)
+        self.base_path = Path(base_path)
+        self.siril = siril
+        self.dry_run = dry_run
+
+        # Load job config
+        self.config = load_job(self.job_path)
+
+        # Set up paths
+        self.output_dir = self.base_path / self.config.output
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Set up logger
+        self.logger = JobLogger(self.output_dir, self.config.name)
+
+        # Set up calibration manager
+        self.cal_manager = CalibrationManager(
+            base_path=self.base_path,
+            dates=CalibrationDates(
+                bias=self.config.calibration_bias,
+                darks=self.config.calibration_darks,
+                flats=self.config.calibration_flats,
+            ),
+            temp_tolerance=self.config.options.temp_tolerance,
+            logger=self.logger,
+        )
+
+        # Cache for built calibration masters
+        self._bias_master: Optional[Path] = None
+        self._dark_masters: dict[tuple[float, float], Path] = {}
+        self._flat_masters: dict[str, Path] = {}
+
+    def validate(self) -> ValidationResult:
+        """
+        Validate the job - scan frames and check calibration.
+
+        Returns ValidationResult with details.
+        """
+        self.logger.step(f"Validating job: {self.config.name}")
+
+        # Scan all light frames
+        all_frames = []
+        for filter_name, dirs in self.config.lights.items():
+            full_dirs = [self.base_path / d for d in dirs]
+            frames = scan_multiple_directories(full_dirs)
+            all_frames.extend(frames)
+            self.logger.substep(f"{filter_name}: {len(frames)} frames from {len(dirs)} dirs")
+
+        if not all_frames:
+            return ValidationResult(
+                valid=False,
+                frames=[],
+                requirements=[],
+                missing_calibration=[],
+                buildable_calibration=[],
+                message="No light frames found",
+            )
+
+        # Build requirements table
+        requirements = build_requirements_table(all_frames)
+        self.logger.step("Requirements:")
+        for req in requirements:
+            self.logger.substep(
+                f"{req.filter_name}: {req.exposure_str} @ {req.temp_str} ({req.count} frames)"
+            )
+
+        # Check calibration availability
+        missing = []
+        buildable = []
+
+        # Check bias (single, no temperature dependency)
+        status = self.cal_manager.check_bias()
+        if not status.exists and not status.can_build:
+            missing.append("bias")
+        elif not status.exists and status.can_build:
+            buildable.append("bias")
+
+        # Check darks for each exposure/temp combo
+        dark_combos = {(req.exposure, req.temperature) for req in requirements}
+        for exp, temp in dark_combos:
+            status = self.cal_manager.check_dark(exp, temp)
+            if not status.exists and not status.can_build:
+                missing.append(f"dark_{int(exp)}s_{int(temp)}C")
+            elif not status.exists and status.can_build:
+                buildable.append(f"dark_{int(exp)}s_{int(temp)}C")
+
+        # Check flats for each filter
+        filters = {req.filter_name for req in requirements}
+        for filter_name in filters:
+            status = self.cal_manager.check_flat(filter_name)
+            if not status.exists and not status.can_build:
+                missing.append(f"flat_{filter_name}")
+            elif not status.exists and status.can_build:
+                buildable.append(f"flat_{filter_name}")
+
+        # Report status
+        self.logger.step("Calibration status:")
+        for name in buildable:
+            self.logger.substep(f"[BUILD] {name}")
+        for name in missing:
+            self.logger.substep(f"[MISSING] {name}")
+
+        valid = len(missing) == 0
+        message = "Validation passed" if valid else f"Missing {len(missing)} calibration files"
+
+        return ValidationResult(
+            valid=valid,
+            frames=all_frames,
+            requirements=requirements,
+            missing_calibration=missing,
+            buildable_calibration=buildable,
+            message=message,
+        )
+
+    def run_calibration(self, validation: ValidationResult) -> None:
+        """
+        Build any missing calibration masters.
+
+        Caches results in instance variables for later lookup.
+        """
+        if self.dry_run:
+            self.logger.step("[DRY RUN] Would build calibration masters")
+            return
+
+        self.logger.step("Building calibration masters...")
+
+        # Get unique requirements
+        dark_combos = {(req.exposure, req.temperature) for req in validation.requirements}
+        filters = {req.filter_name for req in validation.requirements}
+
+        # Build bias master (single, no temperature dependency)
+        self._bias_master = self.cal_manager.build_bias_master(self.siril)
+
+        # Build dark masters
+        for exp, temp in dark_combos:
+            path = self.cal_manager.build_dark_master(exp, temp, self.siril)
+            self._dark_masters[(exp, temp)] = path
+
+        # Build flat masters
+        for filter_name in filters:
+            path = self.cal_manager.build_flat_master(filter_name, self._bias_master, self.siril)
+            self._flat_masters[filter_name] = path
+
+    def get_calibration(
+        self, filter_name: str, exposure: float, temp: float
+    ) -> tuple[Optional[Path], Optional[Path], Optional[Path]]:
+        """
+        Get calibration paths for a specific filter/exposure/temp combo.
+
+        Returns (bias_path, dark_path, flat_path).
+        """
+        # Bias is universal (no temperature dependency)
+        bias = self._bias_master
+
+        # Find dark with matching exposure and temperature tolerance
+        dark = None
+        for (cached_exp, cached_temp), path in self._dark_masters.items():
+            if (cached_exp == exposure and
+                    abs(cached_temp - temp) <= self.config.options.temp_tolerance):
+                dark = path
+                break
+
+        # Get flat for filter
+        flat = self._flat_masters.get(filter_name)
+
+        return bias, dark, flat
+
+    def run_preprocessing(self, frames: list[FrameInfo]) -> dict[str, Path]:
+        """Run preprocessing for all frames, grouped by filter+exposure."""
+        if self.dry_run:
+            self.logger.step("[DRY RUN] Would preprocess all frames")
+            return {}
+
+        self.logger.step("Preprocessing...")
+
+        return preprocess_with_exposure_groups(
+            siril=self.siril,
+            frames=frames,
+            output_dir=self.output_dir,
+            get_calibration=self.get_calibration,
+            logger=self.logger,
+            fwhm_filter=self.config.options.fwhm_filter,
+        )
+
+    def run_composition(self, stacks: dict[str, Path]) -> dict[str, Path]:
+        """Run composition and stretching."""
+        if self.dry_run:
+            self.logger.step("[DRY RUN] Would compose and stretch")
+            return {}
+
+        # Check if we have multiple exposures per filter (HDR mode)
+        filters_with_exposures = self._get_filters_with_exposures(stacks)
+        has_multi_exposure = any(len(exps) > 1 for exps in filters_with_exposures.values())
+
+        if has_multi_exposure:
+            self.logger.step("Multiple exposures detected - skipping auto-composition")
+            self.logger.substep("HDR blending should be done manually")
+            self.logger.substep("Stacks available:")
+            for name, path in sorted(stacks.items()):
+                self.logger.detail(f"  {path.name}")
+            return {"stacks": stacks}
+
+        # Single exposure per filter - can do auto-composition
+        # Convert stack names to filter names for composition
+        filter_stacks = {}
+        for stack_name, path in stacks.items():
+            # Extract filter name from stack_L_180s -> L
+            parts = stack_name.split("_")
+            if len(parts) >= 2:
+                filter_name = parts[1]
+                filter_stacks[filter_name] = path
+
+        self.logger.step("Composing...")
+
+        return compose_and_stretch(
+            siril=self.siril,
+            stacks=filter_stacks,
+            output_dir=self.output_dir,
+            job_type=self.config.job_type,
+            palette=self.config.options.palette,
+            logger=self.logger,
+        )
+
+    def _get_filters_with_exposures(
+        self, stacks: dict[str, Path]
+    ) -> dict[str, list[str]]:
+        """
+        Parse stack names to get filters and their exposures.
+
+        Returns dict like {"L": ["180s", "30s"], "R": ["180s"]}.
+        """
+        result: dict[str, list[str]] = {}
+        for stack_name in stacks:
+            # Parse stack_L_180s -> filter=L, exposure=180s
+            parts = stack_name.split("_")
+            if len(parts) >= 3:
+                filter_name = parts[1]
+                exposure = parts[2]
+                if filter_name not in result:
+                    result[filter_name] = []
+                result[filter_name].append(exposure)
+        return result
+
+    def run(self) -> dict[str, Path]:
+        """Run the full pipeline."""
+        self.logger.info(f"Starting job: {self.config.name}")
+        self.logger.info(f"Type: {self.config.job_type}")
+
+        # Stage 0: Validation
+        validation = self.validate()
+        if not validation.valid:
+            self.logger.error(validation.message)
+            raise ValueError(validation.message)
+
+        # Stage 1: Calibration
+        self.run_calibration(validation)
+
+        # Stage 2: Preprocessing (now uses frames from validation)
+        stacks = self.run_preprocessing(validation.frames)
+
+        # Stage 3 & 4: Composition and Stretching
+        outputs = self.run_composition(stacks)
+
+        self.logger.info(f"Job complete: {self.config.name}")
+        return outputs
+
+    def close(self):
+        """Close the logger."""
+        self.logger.close()
