@@ -65,7 +65,11 @@ class CalibrationManager:
         """Get expected path for dark master."""
         exp_str = f"{int(exposure)}s"
         temp_str = f"{int(round(temp))}C"
-        return self.masters_dir / "darks" / f"dark_{exp_str}_{temp_str}_{self.dates.darks}.fit"
+        return (
+            self.masters_dir
+            / "darks"
+            / f"dark_{exp_str}_{temp_str}_{self.dates.darks}.fit"
+        )
 
     def get_flat_master_path(self, filter_name: str) -> Path:
         """Get expected path for flat master."""
@@ -95,19 +99,28 @@ class CalibrationManager:
 
         if master_path.exists():
             return CalibrationStatus(
-                exists=True, can_build=True, master_path=master_path,
-                raw_path=None, message="Master exists"
+                exists=True,
+                can_build=True,
+                master_path=master_path,
+                raw_path=None,
+                message="Master exists",
             )
 
         if raw_path.exists() and any(raw_path.glob("*.fit*")):
             return CalibrationStatus(
-                exists=False, can_build=True, master_path=master_path,
-                raw_path=raw_path, message="Can build from raw"
+                exists=False,
+                can_build=True,
+                master_path=master_path,
+                raw_path=raw_path,
+                message="Can build from raw",
             )
 
         return CalibrationStatus(
-            exists=False, can_build=False, master_path=master_path,
-            raw_path=raw_path, message=f"No master or raw frames at {raw_path}"
+            exists=False,
+            can_build=False,
+            master_path=master_path,
+            raw_path=raw_path,
+            message=f"No master or raw frames at {raw_path}",
         )
 
     def check_dark(self, exposure: float, temp: float) -> CalibrationStatus:
@@ -118,35 +131,50 @@ class CalibrationManager:
 
         if master_path.exists():
             return CalibrationStatus(
-                exists=True, can_build=True, master_path=master_path,
-                raw_path=None, message="Master exists"
+                exists=True,
+                can_build=True,
+                master_path=master_path,
+                raw_path=None,
+                message="Master exists",
             )
 
         if raw_path.exists() and any(raw_path.glob("*.fit*")):
             return CalibrationStatus(
-                exists=False, can_build=True, master_path=master_path,
-                raw_path=raw_path, message="Can build from raw"
+                exists=False,
+                can_build=True,
+                master_path=master_path,
+                raw_path=raw_path,
+                message="Can build from raw",
             )
 
         # Try temperature tolerance matching for existing masters
         matching_master = self.find_matching_dark(exposure, temp)
         if matching_master:
             return CalibrationStatus(
-                exists=True, can_build=True, master_path=matching_master,
-                raw_path=None, message=f"Using tolerance-matched master: {matching_master.name}"
+                exists=True,
+                can_build=True,
+                master_path=matching_master,
+                raw_path=None,
+                message=f"Using tolerance-matched master: {matching_master.name}",
             )
 
         # Try tolerance matching for raw frames
         matching_raw = self._find_matching_dark_raw(exposure, temp)
         if matching_raw:
             return CalibrationStatus(
-                exists=False, can_build=True, master_path=master_path,
-                raw_path=matching_raw, message=f"Can build from tolerance-matched raw: {matching_raw}"
+                exists=False,
+                can_build=True,
+                master_path=master_path,
+                raw_path=matching_raw,
+                message=f"Can build from tolerance-matched raw: {matching_raw}",
             )
 
         return CalibrationStatus(
-            exists=False, can_build=False, master_path=master_path,
-            raw_path=raw_path, message=f"No master or raw frames at {raw_path}"
+            exists=False,
+            can_build=False,
+            master_path=master_path,
+            raw_path=raw_path,
+            message=f"No master or raw frames at {raw_path}",
         )
 
     def _find_matching_dark_raw(self, exposure: float, temp: float) -> Optional[Path]:
@@ -180,19 +208,28 @@ class CalibrationManager:
 
         if master_path.exists():
             return CalibrationStatus(
-                exists=True, can_build=True, master_path=master_path,
-                raw_path=None, message="Master exists"
+                exists=True,
+                can_build=True,
+                master_path=master_path,
+                raw_path=None,
+                message="Master exists",
             )
 
         if raw_path.exists() and any(raw_path.glob("*.fit*")):
             return CalibrationStatus(
-                exists=False, can_build=True, master_path=master_path,
-                raw_path=raw_path, message="Can build from raw"
+                exists=False,
+                can_build=True,
+                master_path=master_path,
+                raw_path=raw_path,
+                message="Can build from raw",
             )
 
         return CalibrationStatus(
-            exists=False, can_build=False, master_path=master_path,
-            raw_path=raw_path, message=f"No master or raw frames at {raw_path}"
+            exists=False,
+            can_build=False,
+            master_path=master_path,
+            raw_path=raw_path,
+            message=f"No master or raw frames at {raw_path}",
         )
 
     # Building masters
@@ -211,15 +248,31 @@ class CalibrationManager:
         # Ensure output directory exists
         status.master_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Verify raw frames exist
+        raw_files = list(status.raw_path.glob("*.fit*"))
+        if not raw_files:
+            raise FileNotFoundError(f"No bias frames found in {status.raw_path}")
+
         # Build using siril commands
-        siril.cd(str(status.raw_path))
-        siril.convert("bias", out="./process")
-        siril.cd(str(status.raw_path / "process"))
-        siril.stack("bias", "rej", "3", "3", "-nonorm", out=str(status.master_path))
+        if not siril.cd(str(status.raw_path)):
+            raise RuntimeError(f"Failed to cd to bias raw path: {status.raw_path}")
+        if not siril.convert("bias", out="./process"):
+            raise RuntimeError(f"Failed to convert bias frames in {status.raw_path}")
+        if not siril.cd(str(status.raw_path / "process")):
+            raise RuntimeError("Failed to cd to bias process path")
+        if not siril.stack(
+            "bias", "rej", "3", "3", "-nonorm", out=str(status.master_path)
+        ):
+            raise RuntimeError("Failed to stack bias frames")
+
+        if not status.master_path.exists():
+            raise FileNotFoundError(f"Bias master not created: {status.master_path}")
 
         return status.master_path
 
-    def build_dark_master(self, exposure: float, temp: float, siril: SirilInterface) -> Path:
+    def build_dark_master(
+        self, exposure: float, temp: float, siril: SirilInterface
+    ) -> Path:
         """Build dark master from raw frames."""
         status = self.check_dark(exposure, temp)
         if status.exists:
@@ -232,10 +285,24 @@ class CalibrationManager:
 
         status.master_path.parent.mkdir(parents=True, exist_ok=True)
 
-        siril.cd(str(status.raw_path))
-        siril.convert("dark", out="./process")
-        siril.cd(str(status.raw_path / "process"))
-        siril.stack("dark", "rej", "3", "3", "-nonorm", out=str(status.master_path))
+        # Verify raw frames exist
+        raw_files = list(status.raw_path.glob("*.fit*"))
+        if not raw_files:
+            raise FileNotFoundError(f"No dark frames found in {status.raw_path}")
+
+        if not siril.cd(str(status.raw_path)):
+            raise RuntimeError(f"Failed to cd to dark raw path: {status.raw_path}")
+        if not siril.convert("dark", out="./process"):
+            raise RuntimeError(f"Failed to convert dark frames in {status.raw_path}")
+        if not siril.cd(str(status.raw_path / "process")):
+            raise RuntimeError("Failed to cd to dark process path")
+        if not siril.stack(
+            "dark", "rej", "3", "3", "-nonorm", out=str(status.master_path)
+        ):
+            raise RuntimeError("Failed to stack dark frames")
+
+        if not status.master_path.exists():
+            raise FileNotFoundError(f"Dark master not created: {status.master_path}")
 
         return status.master_path
 
@@ -254,11 +321,33 @@ class CalibrationManager:
 
         status.master_path.parent.mkdir(parents=True, exist_ok=True)
 
-        siril.cd(str(status.raw_path))
-        siril.convert(filter_name, out="./process")
-        siril.cd(str(status.raw_path / "process"))
-        siril.calibrate(filter_name, bias=str(bias_path))
-        siril.stack(f"pp_{filter_name}", "rej", "3", "3", "-norm=mul", out=str(status.master_path))
+        # Verify raw frames and bias exist
+        raw_files = list(status.raw_path.glob("*.fit*"))
+        if not raw_files:
+            raise FileNotFoundError(f"No flat frames found in {status.raw_path}")
+        if not bias_path.exists():
+            raise FileNotFoundError(f"Bias master not found: {bias_path}")
+
+        if not siril.cd(str(status.raw_path)):
+            raise RuntimeError(f"Failed to cd to flat raw path: {status.raw_path}")
+        if not siril.convert(filter_name, out="./process"):
+            raise RuntimeError(f"Failed to convert flat frames in {status.raw_path}")
+        if not siril.cd(str(status.raw_path / "process")):
+            raise RuntimeError("Failed to cd to flat process path")
+        if not siril.calibrate(filter_name, bias=str(bias_path)):
+            raise RuntimeError("Failed to calibrate flat frames with bias")
+        if not siril.stack(
+            f"pp_{filter_name}",
+            "rej",
+            "3",
+            "3",
+            "-norm=mul",
+            out=str(status.master_path),
+        ):
+            raise RuntimeError("Failed to stack flat frames")
+
+        if not status.master_path.exists():
+            raise FileNotFoundError(f"Flat master not created: {status.master_path}")
 
         return status.master_path
 

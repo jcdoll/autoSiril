@@ -5,14 +5,14 @@ Handles per-channel preprocessing: convert, calibrate, subsky, register, stack.
 Supports stacking by exposure for HDR workflows.
 """
 
+import shutil
+from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-from dataclasses import dataclass
-from collections import defaultdict
-import shutil
 
-from .logger import JobLogger
 from .fits_utils import FrameInfo
+from .logger import JobLogger
 from .protocols import SirilInterface
 
 
@@ -48,11 +48,13 @@ def group_frames_by_filter_exposure(frames: list[FrameInfo]) -> list[StackGroup]
 
     result = []
     for (filter_name, exposure), frame_list in sorted(groups.items()):
-        result.append(StackGroup(
-            filter_name=filter_name,
-            exposure=exposure,
-            frames=frame_list,
-        ))
+        result.append(
+            StackGroup(
+                filter_name=filter_name,
+                exposure=exposure,
+                frames=frame_list,
+            )
+        )
 
     return result
 
@@ -78,6 +80,44 @@ class Preprocessor:
         if self.logger:
             self.logger.detail(message)
 
+    def _clean_process_dir(self, process_dir: Path) -> None:
+        """Remove old Siril output files from process directory, preserving source/."""
+        # Patterns for Siril-generated files
+        patterns = ["*.fits", "*.fit", "*.seq", "*.csv"]
+        removed = 0
+        for pattern in patterns:
+            for f in process_dir.glob(pattern):
+                # Only remove files directly in process_dir, not in subdirs
+                if f.parent == process_dir:
+                    f.unlink()
+                    removed += 1
+
+        # Remove any leftover subdirectories except source/
+        for d in process_dir.iterdir():
+            if d.is_dir() and d.name != "source":
+                shutil.rmtree(d)
+                removed += 1
+
+        if removed > 0:
+            self._log_detail(
+                f"Cleaned {removed} old files/dirs from {process_dir.name}"
+            )
+
+    def _check_dest_clear(self, process_dir: Path) -> None:
+        """Verify destination directory has no conflicting files before convert."""
+        # Check for any .fits/.fit files directly in process_dir (not in source/)
+        conflicts = []
+        for pattern in ["*.fits", "*.fit", "*.seq"]:
+            for f in process_dir.glob(pattern):
+                if f.parent == process_dir:
+                    conflicts.append(f.name)
+
+        if conflicts:
+            raise RuntimeError(
+                f"Destination not clear: {len(conflicts)} files in {process_dir}. "
+                f"First few: {conflicts[:5]}"
+            )
+
     def process_stack_group(
         self,
         group: StackGroup,
@@ -98,10 +138,15 @@ class Preprocessor:
             )
 
         # Create working directories
-        process_dir = output_dir / "process" / f"{group.filter_name}_{group.exposure_str}"
+        process_dir = (
+            output_dir / "process" / f"{group.filter_name}_{group.exposure_str}"
+        )
         stacks_dir = output_dir / "stacks"
         process_dir.mkdir(parents=True, exist_ok=True)
         stacks_dir.mkdir(parents=True, exist_ok=True)
+
+        # Clean any leftover files from previous runs
+        self._clean_process_dir(process_dir)
 
         # Copy frames to working directory
         source_dir = self._prepare_frames(group, process_dir)
@@ -127,15 +172,31 @@ class Preprocessor:
         source_dir = process_dir / "source"
         source_dir.mkdir(parents=True, exist_ok=True)
 
+        copied_count = 0
         for i, frame in enumerate(group.frames, 1):
             src = frame.path
+            if not src.exists():
+                raise FileNotFoundError(f"Source frame not found: {src}")
+
             # Use sequential naming for Siril compatibility
             suffix = src.suffix
             dest = source_dir / f"light_{i:04d}{suffix}"
             if not dest.exists():
                 shutil.copy2(src, dest)
 
-        self._log_detail(f"Prepared {len(group.frames)} frames")
+            # Verify copy succeeded
+            if not dest.exists():
+                raise IOError(f"Failed to copy frame to: {dest}")
+            copied_count += 1
+
+        # Verify we have files in the source directory
+        fit_files = list(source_dir.glob("light_*.fit*"))
+        if not fit_files:
+            raise FileNotFoundError(f"No light frames found in {source_dir}")
+
+        self._log_detail(
+            f"Prepared {copied_count} frames ({len(fit_files)} files in {source_dir})"
+        )
         return source_dir
 
     def _run_pipeline(
@@ -151,46 +212,75 @@ class Preprocessor:
     ) -> Path:
         """Run the preprocessing pipeline."""
 
+        # Validate calibration files exist
+        for name, path in [
+            ("bias", bias_master),
+            ("dark", dark_master),
+            ("flat", flat_master),
+        ]:
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"Calibration master not found: {name} at {path}"
+                )
+
+        # Verify destination is clear before convert
+        self._check_dest_clear(process_dir)
+
         # Step 1: Convert
         self._log("Converting...")
-        self.siril.cd(str(source_dir))
-        self.siril.convert("light", out=str(process_dir))
+        if not self.siril.cd(str(source_dir)):
+            raise RuntimeError(f"Failed to cd to source directory: {source_dir}")
+        if not self.siril.convert("light", out=str(process_dir)):
+            raise RuntimeError(f"Failed to convert light frames in {source_dir}")
 
         # Step 2: Calibrate
         self._log("Calibrating...")
-        self.siril.cd(str(process_dir))
-        self.siril.calibrate(
+        if not self.siril.cd(str(process_dir)):
+            raise RuntimeError(f"Failed to cd to process directory: {process_dir}")
+        if not self.siril.calibrate(
             "light",
             bias=str(bias_master),
             dark=str(dark_master),
             flat=str(flat_master),
-        )
+        ):
+            raise RuntimeError("Failed to calibrate light sequence")
 
         # Step 3: Background extraction
         self._log("Background extraction...")
-        self.siril.seqsubsky("pp_light", 1)
+        if not self.siril.seqsubsky("pp_light", 1):
+            raise RuntimeError("Failed to run background extraction on pp_light")
 
         # Step 4: Registration
         self._log("Registering (2-pass)...")
-        self.siril.register("bkg_pp_light", twopass=True)
+        if not self.siril.register("bkg_pp_light", twopass=True):
+            raise RuntimeError("Failed to register bkg_pp_light sequence")
 
         # Step 5: Apply registration with FWHM filter
         self._log("Applying registration...")
-        self.siril.seqapplyreg(
+        if not self.siril.seqapplyreg(
             "bkg_pp_light",
             filter_fwhm=f"{self.fwhm_filter}k",
-        )
+        ):
+            raise RuntimeError("Failed to apply registration to bkg_pp_light")
 
         # Step 6: Stack
         self._log("Stacking...")
         stack_path = stacks_dir / f"{stack_name}.fit"
-        self.siril.stack(
+        if not self.siril.stack(
             "r_bkg_pp_light",
-            "rej", "w", "3", "3",
+            "rej",
+            "w",
+            "3",
+            "3",
             norm="addscale",
             fastnorm=True,
             out=str(stack_path),
-        )
+        ):
+            raise RuntimeError(f"Failed to stack r_bkg_pp_light to {stack_path}")
+
+        # Verify output exists
+        if not stack_path.exists():
+            raise FileNotFoundError(f"Stack output not created: {stack_path}")
 
         self._log(f"Complete -> {stack_path.name}")
         return stack_path
@@ -276,7 +366,7 @@ def preprocess_all_filters(
 
     # Scan frames
     all_frames = []
-    for filter_name, light_dirs in filters_config.items():
+    for _filter_name, light_dirs in filters_config.items():
         frames = scan_multiple_directories([Path(d) for d in light_dirs])
         all_frames.extend(frames)
 
