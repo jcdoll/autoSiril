@@ -10,6 +10,10 @@
 - We use `uv` for venv management.
 - Use python commands as `uv run python ...` and be sure that `pyproject.toml` is configured.
 
+## Always plan first
+- Typical workflow: user makes a request, you formulate a plan, you share the plan for approval. If approved you implement the plan.
+- NEVER assume that presenting a good plan means you should implement it. Request approval.
+
 ## Documentation standards
 - Do not use excessive bold in markdown documents. Use font styling very selectively.
 - Do not use emoji in either code or docs.
