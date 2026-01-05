@@ -244,64 +244,24 @@ class JobRunner:
             fwhm_filter=self.config.options.fwhm_filter,
         )
 
-    def run_composition(self, stacks: dict[str, Path]) -> CompositionResult:
-        """Run composition and stretching."""
+    def run_composition(self) -> CompositionResult:
+        """
+        Run composition and stretching.
+
+        Discovers stacks from output_dir/stacks/ directory.
+        HDR detection is automatic - returns None if multiple exposures per filter.
+        """
         if self.dry_run:
             self.logger.step("[DRY RUN] Would compose and stretch")
             return None
 
-        # Check if we have multiple exposures per filter (HDR mode)
-        filters_with_exposures = self._get_filters_with_exposures(stacks)
-        has_multi_exposure = any(len(exps) > 1 for exps in filters_with_exposures.values())
-
-        if has_multi_exposure:
-            self.logger.step("Multiple exposures detected - skipping auto-composition")
-            self.logger.substep("HDR blending should be done manually")
-            self.logger.substep("Stacks available:")
-            for name, path in sorted(stacks.items()):
-                self.logger.detail(f"  {path.name}")
-            return None
-
-        # Single exposure per filter - can do auto-composition
-        # Convert stack names to filter names for composition
-        filter_stacks = {}
-        for stack_name, path in stacks.items():
-            # Extract filter name from stack_L_180s -> L
-            parts = stack_name.split("_")
-            if len(parts) >= 2:
-                filter_name = parts[1]
-                filter_stacks[filter_name] = path
-
-        self.logger.step("Composing...")
-
         return compose_and_stretch(
             siril=self.siril,
-            stacks=filter_stacks,
             output_dir=self.output_dir,
             job_type=self.config.job_type,
             palette=self.config.options.palette,
             logger=self.logger,
         )
-
-    def _get_filters_with_exposures(
-        self, stacks: dict[str, Path]
-    ) -> dict[str, list[str]]:
-        """
-        Parse stack names to get filters and their exposures.
-
-        Returns dict like {"L": ["180s", "30s"], "R": ["180s"]}.
-        """
-        result: dict[str, list[str]] = {}
-        for stack_name in stacks:
-            # Parse stack_L_180s -> filter=L, exposure=180s
-            parts = stack_name.split("_")
-            if len(parts) >= 3:
-                filter_name = parts[1]
-                exposure = parts[2]
-                if filter_name not in result:
-                    result[filter_name] = []
-                result[filter_name].append(exposure)
-        return result
 
     def run(self) -> Optional[CompositionResult]:
         """Run the full pipeline."""
@@ -318,10 +278,10 @@ class JobRunner:
         self.run_calibration(validation)
 
         # Stage 2: Preprocessing (now uses frames from validation)
-        stacks = self.run_preprocessing(validation.frames)
+        self.run_preprocessing(validation.frames)
 
-        # Stage 3 & 4: Composition and Stretching
-        result = self.run_composition(stacks)
+        # Stage 3 & 4: Composition and Stretching (discovers stacks from output dir)
+        result = self.run_composition()
 
         self.logger.info(f"Job complete: {self.config.name}")
 

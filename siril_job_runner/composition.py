@@ -5,6 +5,7 @@ Handles LRGB composition, narrowband palette mixing, and stretching.
 Based on LRGB_pre.ssf and LRGB_compose.ssf workflows.
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,20 @@ PALETTES = {
 
 
 @dataclass
+class StackInfo:
+    """Information about a discovered stack file."""
+
+    path: Path
+    filter_name: str
+    exposure: int  # seconds
+
+    @property
+    def name(self) -> str:
+        """Stack name without extension."""
+        return self.path.stem
+
+
+@dataclass
 class CompositionResult:
     """Result of composition stage."""
 
@@ -29,6 +44,41 @@ class CompositionResult:
     auto_tif: Path  # Auto-stretched .tif
     auto_jpg: Path  # Auto-stretched .jpg
     stacks_dir: Path  # Directory containing linear stacks
+
+
+def discover_stacks(stacks_dir: Path) -> dict[str, list[StackInfo]]:
+    """
+    Discover stacks in the stacks directory.
+
+    Parses filenames like `stack_L_180s.fit` to extract filter and exposure.
+
+    Returns:
+        Dict mapping filter name to list of StackInfo (multiple if HDR)
+    """
+    pattern = re.compile(r"^stack_([A-Z]+)_(\d+)s\.fit$")
+    result: dict[str, list[StackInfo]] = {}
+
+    for path in stacks_dir.glob("stack_*_*s.fit"):
+        match = pattern.match(path.name)
+        if match:
+            filter_name = match.group(1)
+            exposure = int(match.group(2))
+            info = StackInfo(path=path, filter_name=filter_name, exposure=exposure)
+
+            if filter_name not in result:
+                result[filter_name] = []
+            result[filter_name].append(info)
+
+    # Sort each filter's stacks by exposure
+    for filter_name in result:
+        result[filter_name].sort(key=lambda s: s.exposure)
+
+    return result
+
+
+def is_hdr_mode(stacks: dict[str, list[StackInfo]]) -> bool:
+    """Check if any filter has multiple exposures (HDR mode)."""
+    return any(len(stack_list) > 1 for stack_list in stacks.values())
 
 
 class Composer:
@@ -63,29 +113,39 @@ class Composer:
         if self.logger:
             self.logger.step(message)
 
-    def compose_lrgb(self, deconvolve_l: bool = True) -> CompositionResult:
+    def compose_lrgb(
+        self,
+        stacks: dict[str, list[StackInfo]],
+        deconvolve_l: bool = True,
+    ) -> CompositionResult:
         """
         Compose LRGB image from stacked channels.
 
-        Expects stacks: stack_L.fit, stack_R.fit, stack_G.fit, stack_B.fit
-        in self.stacks_dir.
+        Args:
+            stacks: Dict from discover_stacks() - filter name to list of StackInfo
+            deconvolve_l: Whether to deconvolve L channel
 
         Returns CompositionResult with paths to all outputs.
         """
         self._log_step("Composing LRGB")
 
-        # Verify all stacks exist
+        # Verify all required channels (single exposure each)
         for ch in ["L", "R", "G", "B"]:
-            stack_path = self.stacks_dir / f"stack_{ch}.fit"
-            if not stack_path.exists():
-                # Try with exposure suffix
-                matches = list(self.stacks_dir.glob(f"stack_{ch}_*.fit"))
-                if not matches:
-                    raise FileNotFoundError(f"Missing stack: {stack_path}")
+            if ch not in stacks:
+                raise ValueError(f"Missing required channel: {ch}")
+            if len(stacks[ch]) != 1:
+                raise ValueError(f"Expected single exposure for {ch}, got {len(stacks[ch])}")
+
+        # Get the single stack for each channel
+        stack_L = stacks["L"][0]
+        stack_R = stacks["R"][0]
+        stack_G = stacks["G"][0]
+        stack_B = stacks["B"][0]
 
         self.siril.cd(str(self.stacks_dir))
 
         # Step 1: Register stacks to each other
+        # After convert, files are numbered alphabetically: B=1, G=2, L=3, R=4
         self._log("Cross-registering stacks...")
         self.siril.convert("stack", out="./registered")
         self.siril.cd(str(self.stacks_dir / "registered"))
@@ -93,7 +153,7 @@ class Composer:
         self.siril.seqapplyreg("stack", framing="min")
 
         # Step 2: Linear match to reference (R)
-        # Stacks are in alphabetical order: B=1, G=2, L=3, R=4
+        # Alphabetical order: B=00001, G=00002, L=00003, R=00004
         self._log("Linear matching to R reference...")
         self.siril.load("r_stack_00004")  # R
         self.siril.save("R")
@@ -145,7 +205,10 @@ class Composer:
             stacks_dir=self.stacks_dir,
         )
 
-    def compose_rgb(self) -> CompositionResult:
+    def compose_rgb(
+        self,
+        stacks: dict[str, list[StackInfo]],
+    ) -> CompositionResult:
         """
         Compose RGB image (no luminance channel).
 
@@ -153,9 +216,17 @@ class Composer:
         """
         self._log_step("Composing RGB")
 
+        # Verify required channels
+        for ch in ["R", "G", "B"]:
+            if ch not in stacks:
+                raise ValueError(f"Missing required channel: {ch}")
+            if len(stacks[ch]) != 1:
+                raise ValueError(f"Expected single exposure for {ch}, got {len(stacks[ch])}")
+
         self.siril.cd(str(self.stacks_dir))
 
         # Register stacks
+        # Alphabetical: B=00001, G=00002, R=00003
         self._log("Cross-registering stacks...")
         self.siril.convert("stack", out="./registered")
         self.siril.cd(str(self.stacks_dir / "registered"))
@@ -164,13 +235,16 @@ class Composer:
 
         # Linear match to R
         self._log("Linear matching to R reference...")
-        self.siril.load("r_stack_R")
+        self.siril.load("r_stack_00003")  # R
         self.siril.save("R")
 
-        for ch in ["G", "B"]:
-            self.siril.load(f"r_stack_{ch}")
-            self.siril.linear_match("R", 0, 0.92)
-            self.siril.save(ch)
+        self.siril.load("r_stack_00001")  # B
+        self.siril.linear_match("R", 0, 0.92)
+        self.siril.save("B")
+
+        self.siril.load("r_stack_00002")  # G
+        self.siril.linear_match("R", 0, 0.92)
+        self.siril.save("G")
 
         # Compose RGB
         self._log("Creating RGB composite...")
@@ -192,7 +266,11 @@ class Composer:
             stacks_dir=self.stacks_dir,
         )
 
-    def compose_narrowband(self, palette: str = "HOO") -> CompositionResult:
+    def compose_narrowband(
+        self,
+        stacks: dict[str, list[StackInfo]],
+        palette: str = "HOO",
+    ) -> CompositionResult:
         """
         Compose narrowband image using palette mapping.
 
@@ -206,6 +284,14 @@ class Composer:
             raise ValueError(f"Unknown palette: {palette}. Available: {list(PALETTES.keys())}")
 
         mapping = PALETTES[palette]
+        required = set(mapping.values())
+
+        for ch in required:
+            if ch not in stacks:
+                raise ValueError(f"Missing required channel: {ch}")
+            if len(stacks[ch]) != 1:
+                raise ValueError(f"Expected single exposure for {ch}, got {len(stacks[ch])}")
+
         self.siril.cd(str(self.stacks_dir))
 
         # Register stacks
@@ -215,18 +301,22 @@ class Composer:
         self.siril.register("stack", twopass=True)
         self.siril.seqapplyreg("stack", framing="min")
 
-        # Determine reference channel (H for both palettes)
+        # For HOO: H=00001, O=00002
+        # For SHO: H=00001, O=00002, S=00003
+        # Determine numbering based on what channels exist
+        channels_sorted = sorted(stacks.keys())
+        channel_to_num = {ch: f"{i+1:05d}" for i, ch in enumerate(channels_sorted)}
+
+        # Linear match to H
         self._log("Linear matching to H reference...")
-        self.siril.load("r_stack_H")
+        self.siril.load(f"r_stack_{channel_to_num['H']}")
         self.siril.save("H")
 
-        for ch in ["O", "S"]:
-            try:
-                self.siril.load(f"r_stack_{ch}")
+        for ch in required:
+            if ch != "H":
+                self.siril.load(f"r_stack_{channel_to_num[ch]}")
                 self.siril.linear_match("H", 0, 0.92)
                 self.siril.save(ch)
-            except Exception:
-                pass  # S may not exist for HOO
 
         # Map channels according to palette
         self._log(f"Applying {palette} palette...")
@@ -287,35 +377,52 @@ class Composer:
 
 def compose_and_stretch(
     siril: SirilInterface,
-    stacks: dict[str, Path],
     output_dir: Path,
     job_type: str,
     palette: str = "HOO",
     deconvolve_l: bool = True,
     logger: Optional[JobLogger] = None,
-) -> CompositionResult:
+) -> Optional[CompositionResult]:
     """
-    Compose and stretch based on job type.
+    Discover stacks and compose based on job type.
 
     Args:
         siril: Siril interface
-        stacks: Dict of stack_name -> path (from preprocessing)
-        output_dir: Output directory
+        output_dir: Output directory (contains stacks/ subdirectory)
         job_type: "LRGB", "RGB", "SHO", or "HOO"
         palette: Narrowband palette (for SHO/HOO)
         deconvolve_l: Whether to deconvolve L channel (LRGB only)
         logger: Optional logger
 
     Returns:
-        CompositionResult with paths to all outputs
+        CompositionResult with paths to all outputs, or None if HDR mode
     """
+    stacks_dir = Path(output_dir) / "stacks"
+    stacks = discover_stacks(stacks_dir)
+
+    if not stacks:
+        raise FileNotFoundError(f"No stacks found in {stacks_dir}")
+
+    if logger:
+        logger.step("Discovered stacks:")
+        for filter_name, stack_list in sorted(stacks.items()):
+            for s in stack_list:
+                logger.substep(f"{s.name}.fit")
+
+    # Check for HDR mode
+    if is_hdr_mode(stacks):
+        if logger:
+            logger.step("Multiple exposures detected - HDR mode")
+            logger.substep("Skipping auto-composition. Manual blending required.")
+        return None
+
     composer = Composer(siril, output_dir, logger)
 
     if job_type == "LRGB":
-        return composer.compose_lrgb(deconvolve_l=deconvolve_l)
+        return composer.compose_lrgb(stacks, deconvolve_l=deconvolve_l)
     elif job_type == "RGB":
-        return composer.compose_rgb()
+        return composer.compose_rgb(stacks)
     elif job_type in ("SHO", "HOO"):
-        return composer.compose_narrowband(palette=palette or job_type)
+        return composer.compose_narrowband(stacks, palette=palette or job_type)
     else:
         raise ValueError(f"Unknown job type: {job_type}")
