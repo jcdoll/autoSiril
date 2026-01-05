@@ -48,6 +48,7 @@ Thumbs.db
 
 # Project specific
 settings.json
+settings.local.json
 *.fit
 *.fits
 *.tif
