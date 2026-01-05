@@ -24,21 +24,25 @@ def get_siril_interface():
     """
     Get Siril interface.
 
-    Returns sirilpy interface if available, otherwise None.
+    Returns SirilWrapper around pysiril if available, otherwise None.
     """
     try:
-        from sirilpy import Siril
+        from pysiril.siril import Siril
+        from siril_job_runner.siril_wrapper import SirilWrapper
+
         siril = Siril()
         siril.Open()
-        return siril
+        return SirilWrapper(siril), siril  # Return wrapper and raw for cleanup
     except ImportError:
-        print("WARNING: sirilpy not available. Install with: pip install sirilpy")
+        print("WARNING: pysiril not available.")
+        print("Install with: pip install pysiril")
+        print("Or from GitLab: pip install git+https://gitlab.com/nicniv/pysiril.git")
         print("Running in validation-only mode.")
-        return None
+        return None, None
     except Exception as e:
         print(f"WARNING: Could not connect to Siril: {e}")
-        print("Make sure Siril is running with scripting enabled.")
-        return None
+        print("Make sure Siril is installed and accessible.")
+        return None, None
 
 
 def main():
@@ -116,8 +120,9 @@ Examples:
 
     # Get Siril interface
     siril = None
+    siril_raw = None
     if not args.validate and not args.dry_run:
-        siril = get_siril_interface()
+        siril, siril_raw = get_siril_interface()
         if siril is None and not args.validate:
             print("Cannot run without Siril connection. Use --validate or --dry-run.")
             sys.exit(1)
@@ -181,10 +186,10 @@ Examples:
         sys.exit(1)
 
     finally:
-        # Close Siril connection
-        if siril is not None:
+        # Close Siril connection (use raw pysiril object)
+        if siril_raw is not None:
             try:
-                siril.Close()
+                siril_raw.Close()
             except Exception:
                 pass
 

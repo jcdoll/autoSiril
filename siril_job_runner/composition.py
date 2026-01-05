@@ -1,224 +1,280 @@
 """
 Composition module for Siril job processing.
 
-Handles RGB composition, LRGB combination, and narrowband palette mixing.
+Handles LRGB composition, narrowband palette mixing, and stretching.
+Based on LRGB_pre.ssf and LRGB_compose.ssf workflows.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, Optional
+from typing import Optional
 
 from .logger import JobLogger
+from .protocols import SirilInterface
 
 
-class SirilInterface(Protocol):
-    """Protocol for Siril interface."""
-
-    def cd(self, path: str) -> None: ...
-    def load(self, path: str) -> None: ...
-    def save(self, path: str) -> None: ...
-    def convert(self, name: str, **kwargs) -> None: ...
-    def register(self, name: str, **kwargs) -> None: ...
-    def seqapplyreg(self, name: str, **kwargs) -> None: ...
-    def linear_match(self, ref: str, low: float, high: float) -> None: ...
-    def rgbcomp(self, *args, **kwargs) -> None: ...
-    def pm(self, expression: str) -> None: ...
-    def autostretch(self) -> None: ...
-    def mtf(self, low: float, mid: float, high: float) -> None: ...
-    def satu(self, amount: float, threshold: float) -> None: ...
-    def savetif(self, path: str, **kwargs) -> None: ...
-    def savejpg(self, path: str, quality: int) -> None: ...
-
-
-# Narrowband palette definitions (pixelmath expressions)
+# Narrowband palette definitions (channel mappings)
 PALETTES = {
-    "HOO": {
-        "R": "$H$",
-        "G": "$O$",
-        "B": "$O$",
-    },
-    "HOO_natural": {
-        "R": "$H$",
-        "G": "0.2*$H$ + 0.8*$O$",
-        "B": "0.15*$H$ + 0.85*$O$",
-    },
-    "SHO_blue_red": {
-        "R": "0.76*$H$ + 0.24*$S$",
-        "G": "$O$",
-        "B": "0.85*$O$ + 0.15*$H$",
-    },
-    "SHO_blue_gold": {
-        "R": "0.7*$S$ + 0.3*$H$",
-        "G": "0.3*$S$ + 0.3*$H$ + 0.4*$O$",
-        "B": "$O$",
-    },
+    "HOO": {"R": "H", "G": "O", "B": "O"},
+    "SHO": {"R": "S", "G": "H", "B": "O"},
 }
 
 
-class Composer:
-    """Handles image composition and stretching."""
+@dataclass
+class CompositionResult:
+    """Result of composition stage."""
 
-    def __init__(self, siril: SirilInterface, logger: Optional[JobLogger] = None):
+    linear_path: Path  # Unstretched composed image (for VeraLux)
+    auto_fit: Path  # Auto-stretched .fit
+    auto_tif: Path  # Auto-stretched .tif
+    auto_jpg: Path  # Auto-stretched .jpg
+    stacks_dir: Path  # Directory containing linear stacks
+
+
+class Composer:
+    """
+    Handles image composition and stretching.
+
+    Workflow based on LRGB_pre.ssf:
+    1. Register all stacks to each other
+    2. Linear match all channels to reference (R)
+    3. Optional: Deconvolve L channel
+    4. rgbcomp R G B -> rgb
+    5. rgbcomp -lum=L rgb -> lrgb (for LRGB)
+    6. autostretch + mtf + satu for auto output
+    """
+
+    def __init__(
+        self,
+        siril: SirilInterface,
+        output_dir: Path,
+        logger: Optional[JobLogger] = None,
+    ):
         self.siril = siril
+        self.output_dir = Path(output_dir)
         self.logger = logger
+        self.stacks_dir = self.output_dir / "stacks"
 
     def _log(self, message: str) -> None:
         if self.logger:
             self.logger.substep(message)
 
-    def compose_lrgb(
-        self,
-        stacks: dict[str, Path],
-        output_dir: Path,
-    ) -> Path:
+    def _log_step(self, message: str) -> None:
+        if self.logger:
+            self.logger.step(message)
+
+    def compose_lrgb(self, deconvolve_l: bool = True) -> CompositionResult:
         """
         Compose LRGB image from stacked channels.
 
-        Args:
-            stacks: Dict with L, R, G, B paths
-            output_dir: Output directory
+        Expects stacks: stack_L.fit, stack_R.fit, stack_G.fit, stack_B.fit
+        in self.stacks_dir.
 
-        Returns:
-            Path to unstretched LRGB result
+        Returns CompositionResult with paths to all outputs.
         """
-        self._log("Composing LRGB...")
+        self._log_step("Composing LRGB")
 
-        # Ensure all required channels exist
-        required = ["L", "R", "G", "B"]
-        for ch in required:
-            if ch not in stacks:
-                raise ValueError(f"Missing required channel: {ch}")
+        # Verify all stacks exist
+        for ch in ["L", "R", "G", "B"]:
+            stack_path = self.stacks_dir / f"stack_{ch}.fit"
+            if not stack_path.exists():
+                # Try with exposure suffix
+                matches = list(self.stacks_dir.glob(f"stack_{ch}_*.fit"))
+                if not matches:
+                    raise FileNotFoundError(f"Missing stack: {stack_path}")
 
-        stacks_dir = output_dir / "stacks"
-        self.siril.cd(str(stacks_dir))
+        self.siril.cd(str(self.stacks_dir))
 
-        # Register stacks to each other
+        # Step 1: Register stacks to each other
         self._log("Cross-registering stacks...")
-        self.siril.convert("stacks", out=str(stacks_dir / "reg"))
-        self.siril.cd(str(stacks_dir / "reg"))
-        self.siril.register("stacks", twopass=True)
-        self.siril.seqapplyreg("stacks", framing="min")
+        self.siril.convert("stack", out="./registered")
+        self.siril.cd(str(self.stacks_dir / "registered"))
+        self.siril.register("stack", twopass=True)
+        self.siril.seqapplyreg("stack", framing="min")
 
-        # Linear match to L channel
-        self._log("Linear matching channels...")
-        self.siril.load("r_stacks_L")
-        self.siril.save("L_matched")
+        # Step 2: Linear match to reference (R)
+        # Stacks are in alphabetical order: B=1, G=2, L=3, R=4
+        self._log("Linear matching to R reference...")
+        self.siril.load("r_stack_00004")  # R
+        self.siril.save("R")
 
-        for ch in ["R", "G", "B"]:
-            self.siril.load(f"r_stacks_{ch}")
-            self.siril.linear_match("L_matched", 0, 0.92)
-            self.siril.save(f"{ch}_matched")
+        self.siril.load("r_stack_00001")  # B
+        self.siril.linear_match("R", 0, 0.92)
+        self.siril.save("B")
+
+        self.siril.load("r_stack_00002")  # G
+        self.siril.linear_match("R", 0, 0.92)
+        self.siril.save("G")
+
+        self.siril.load("r_stack_00003")  # L
+        self.siril.linear_match("R", 0, 0.92)
+        self.siril.save("L")
+
+        # Step 3: Optional deconvolution on L
+        l_name = "L"
+        if deconvolve_l:
+            self._log("Deconvolving L channel...")
+            self.siril.load("L")
+            self.siril.makepsf("blind")
+            self.siril.rl()
+            self.siril.save("L_deconv")
+            l_name = "L_deconv"
+
+        # Step 4: Compose RGB
+        self._log("Creating RGB composite...")
+        self.siril.rgbcomp(r="R", g="G", b="B", out="rgb")
+
+        # Step 5: Add luminance
+        self._log("Adding luminance channel...")
+        self.siril.rgbcomp(lum=l_name, rgb="rgb", out="lrgb")
+
+        # Save linear (unstretched) result
+        linear_path = self.output_dir / "lrgb_linear.fit"
+        self.siril.load("lrgb")
+        self.siril.save(str(linear_path))
+        self._log(f"Saved linear: {linear_path.name}")
+
+        # Step 6: Auto-stretch and save
+        auto_paths = self._auto_stretch("lrgb", "lrgb_auto")
+
+        return CompositionResult(
+            linear_path=linear_path,
+            auto_fit=auto_paths["fit"],
+            auto_tif=auto_paths["tif"],
+            auto_jpg=auto_paths["jpg"],
+            stacks_dir=self.stacks_dir,
+        )
+
+    def compose_rgb(self) -> CompositionResult:
+        """
+        Compose RGB image (no luminance channel).
+
+        For cases where L channel is not available.
+        """
+        self._log_step("Composing RGB")
+
+        self.siril.cd(str(self.stacks_dir))
+
+        # Register stacks
+        self._log("Cross-registering stacks...")
+        self.siril.convert("stack", out="./registered")
+        self.siril.cd(str(self.stacks_dir / "registered"))
+        self.siril.register("stack", twopass=True)
+        self.siril.seqapplyreg("stack", framing="min")
+
+        # Linear match to R
+        self._log("Linear matching to R reference...")
+        self.siril.load("r_stack_R")
+        self.siril.save("R")
+
+        for ch in ["G", "B"]:
+            self.siril.load(f"r_stack_{ch}")
+            self.siril.linear_match("R", 0, 0.92)
+            self.siril.save(ch)
 
         # Compose RGB
         self._log("Creating RGB composite...")
-        self.siril.rgbcomp("R_matched", "G_matched", "B_matched", out="rgb")
+        self.siril.rgbcomp(r="R", g="G", b="B", out="rgb")
 
-        # Add luminance
-        self._log("Adding luminance...")
-        self.siril.rgbcomp(lum="L_matched", rgb="rgb", out="lrgb")
+        # Save linear result
+        linear_path = self.output_dir / "rgb_linear.fit"
+        self.siril.load("rgb")
+        self.siril.save(str(linear_path))
 
-        # Save unstretched result
-        unstretched_path = output_dir / "unstretched_lrgb.fit"
-        self.siril.load("lrgb")
-        self.siril.save(str(unstretched_path))
+        # Auto-stretch
+        auto_paths = self._auto_stretch("rgb", "rgb_auto")
 
-        return unstretched_path
+        return CompositionResult(
+            linear_path=linear_path,
+            auto_fit=auto_paths["fit"],
+            auto_tif=auto_paths["tif"],
+            auto_jpg=auto_paths["jpg"],
+            stacks_dir=self.stacks_dir,
+        )
 
-    def compose_narrowband(
-        self,
-        stacks: dict[str, Path],
-        output_dir: Path,
-        palette: str = "HOO",
-    ) -> Path:
+    def compose_narrowband(self, palette: str = "HOO") -> CompositionResult:
         """
-        Compose narrowband image using palette.
+        Compose narrowband image using palette mapping.
 
-        Args:
-            stacks: Dict with H, O (and optionally S) paths
-            output_dir: Output directory
-            palette: Palette name (HOO, SHO_blue_gold, etc.)
-
-        Returns:
-            Path to unstretched result
+        Palettes:
+        - HOO: H->R, O->G, O->B
+        - SHO: S->R, H->G, O->B
         """
-        self._log(f"Composing narrowband ({palette})...")
+        self._log_step(f"Composing narrowband ({palette})")
 
         if palette not in PALETTES:
             raise ValueError(f"Unknown palette: {palette}. Available: {list(PALETTES.keys())}")
 
-        palette_def = PALETTES[palette]
-
-        stacks_dir = output_dir / "stacks"
-        self.siril.cd(str(stacks_dir))
+        mapping = PALETTES[palette]
+        self.siril.cd(str(self.stacks_dir))
 
         # Register stacks
         self._log("Cross-registering stacks...")
-        self.siril.convert("stacks", out=str(stacks_dir / "reg"))
-        self.siril.cd(str(stacks_dir / "reg"))
-        self.siril.register("stacks", twopass=True)
-        self.siril.seqapplyreg("stacks", framing="min")
+        self.siril.convert("stack", out="./registered")
+        self.siril.cd(str(self.stacks_dir / "registered"))
+        self.siril.register("stack", twopass=True)
+        self.siril.seqapplyreg("stack", framing="min")
 
-        # Linear match to H channel
-        self._log("Linear matching channels...")
-        self.siril.load("r_stacks_H")
+        # Determine reference channel (H for both palettes)
+        self._log("Linear matching to H reference...")
+        self.siril.load("r_stack_H")
         self.siril.save("H")
 
         for ch in ["O", "S"]:
-            if ch in stacks or f"r_stacks_{ch}" in str(stacks_dir):
-                try:
-                    self.siril.load(f"r_stacks_{ch}")
-                    self.siril.linear_match("H", 0, 0.92)
-                    self.siril.save(ch)
-                except Exception:
-                    pass  # Channel may not exist for HOO
+            try:
+                self.siril.load(f"r_stack_{ch}")
+                self.siril.linear_match("H", 0, 0.92)
+                self.siril.save(ch)
+            except Exception:
+                pass  # S may not exist for HOO
 
-        # Apply palette using pixelmath
-        self._log("Applying palette...")
-        for channel, expression in palette_def.items():
-            self.siril.pm(expression)
-            self.siril.save(channel)
+        # Map channels according to palette
+        self._log(f"Applying {palette} palette...")
+        r_src = mapping["R"]
+        g_src = mapping["G"]
+        b_src = mapping["B"]
 
-        # Compose RGB
-        self.siril.rgbcomp("R", "G", "B", out="narrowband")
+        self.siril.rgbcomp(r=r_src, g=g_src, b=b_src, out="narrowband")
 
-        # Save unstretched result
-        type_name = "sho" if "S" in stacks else "hoo"
-        unstretched_path = output_dir / f"unstretched_{type_name}.fit"
+        # Save linear result
+        type_name = palette.lower()
+        linear_path = self.output_dir / f"{type_name}_linear.fit"
         self.siril.load("narrowband")
-        self.siril.save(str(unstretched_path))
+        self.siril.save(str(linear_path))
 
-        return unstretched_path
+        # Auto-stretch
+        auto_paths = self._auto_stretch("narrowband", f"{type_name}_auto")
 
-    def stretch(
-        self,
-        input_path: Path,
-        output_dir: Path,
-        name: str = "output",
-    ) -> dict[str, Path]:
+        return CompositionResult(
+            linear_path=linear_path,
+            auto_fit=auto_paths["fit"],
+            auto_tif=auto_paths["tif"],
+            auto_jpg=auto_paths["jpg"],
+            stacks_dir=self.stacks_dir,
+        )
+
+    def _auto_stretch(self, input_name: str, output_name: str) -> dict[str, Path]:
         """
-        Apply stretch to image and save in multiple formats.
+        Apply auto-stretch pipeline and save in multiple formats.
 
-        Args:
-            input_path: Path to unstretched image
-            output_dir: Output directory
-            name: Base name for output files
-
-        Returns:
-            Dict with paths to fit, tif, jpg outputs
+        Pipeline from LRGB_compose.ssf:
+        - autostretch
+        - mtf 0.20 0.5 1.0
+        - satu 1 0
         """
-        self._log("Stretching...")
+        self._log("Auto-stretching...")
 
-        self.siril.cd(str(output_dir))
-        self.siril.load(str(input_path))
-
-        # Apply stretch
-        self.siril.autostretch()
+        self.siril.load(input_name)
+        self.siril.autostretch(linked=True)
         self.siril.mtf(0.20, 0.5, 1.0)
         self.siril.satu(1, 0)
 
         # Save in multiple formats
-        fit_path = output_dir / f"{name}.fit"
-        tif_path = output_dir / f"{name}.tif"
-        jpg_path = output_dir / f"{name}.jpg"
+        self.siril.cd(str(self.output_dir))
+
+        fit_path = self.output_dir / f"{output_name}.fit"
+        tif_path = self.output_dir / f"{output_name}.tif"
+        jpg_path = self.output_dir / f"{output_name}.jpg"
 
         self.siril.save(str(fit_path))
         self.siril.savetif(str(tif_path), astro=True, deflate=True)
@@ -226,18 +282,7 @@ class Composer:
 
         self._log(f"Saved: {fit_path.name}, {tif_path.name}, {jpg_path.name}")
 
-        # Placeholder for future VeraLux CLI integration
-        # TODO: VeraLux CLI integration (when available)
-        # subprocess.run(["python", "VeraLux_HyperMetric_Stretch.py",
-        #                 "--input", str(input_path),
-        #                 "--output", str(output_dir / f"{name}_veralux.fit"),
-        #                 "--profile", "ready-to-use"])
-
-        return {
-            "fit": fit_path,
-            "tif": tif_path,
-            "jpg": jpg_path,
-        }
+        return {"fit": fit_path, "tif": tif_path, "jpg": jpg_path}
 
 
 def compose_and_stretch(
@@ -246,25 +291,31 @@ def compose_and_stretch(
     output_dir: Path,
     job_type: str,
     palette: str = "HOO",
+    deconvolve_l: bool = True,
     logger: Optional[JobLogger] = None,
-) -> dict[str, Path]:
+) -> CompositionResult:
     """
     Compose and stretch based on job type.
 
-    Returns dict with unstretched and stretched output paths.
+    Args:
+        siril: Siril interface
+        stacks: Dict of stack_name -> path (from preprocessing)
+        output_dir: Output directory
+        job_type: "LRGB", "RGB", "SHO", or "HOO"
+        palette: Narrowband palette (for SHO/HOO)
+        deconvolve_l: Whether to deconvolve L channel (LRGB only)
+        logger: Optional logger
+
+    Returns:
+        CompositionResult with paths to all outputs
     """
-    composer = Composer(siril, logger)
+    composer = Composer(siril, output_dir, logger)
 
     if job_type == "LRGB":
-        unstretched = composer.compose_lrgb(stacks, output_dir)
-        name = "lrgb"
-    else:  # SHO or HOO
-        unstretched = composer.compose_narrowband(stacks, output_dir, palette)
-        name = "sho" if job_type == "SHO" else "hoo"
-
-    stretched = composer.stretch(unstretched, output_dir, name)
-
-    return {
-        "unstretched": unstretched,
-        **stretched,
-    }
+        return composer.compose_lrgb(deconvolve_l=deconvolve_l)
+    elif job_type == "RGB":
+        return composer.compose_rgb()
+    elif job_type in ("SHO", "HOO"):
+        return composer.compose_narrowband(palette=palette or job_type)
+    else:
+        raise ValueError(f"Unknown job type: {job_type}")

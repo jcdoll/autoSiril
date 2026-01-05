@@ -6,25 +6,14 @@ Supports stacking by exposure for HDR workflows.
 """
 
 from pathlib import Path
-from typing import Protocol, Optional
+from typing import Optional
 from dataclasses import dataclass
 from collections import defaultdict
 import shutil
 
 from .logger import JobLogger
 from .fits_utils import FrameInfo
-
-
-class SirilInterface(Protocol):
-    """Protocol for Siril interface."""
-
-    def cd(self, path: str) -> None: ...
-    def convert(self, name: str, **kwargs) -> None: ...
-    def calibrate(self, name: str, **kwargs) -> None: ...
-    def seqsubsky(self, name: str, degree: int) -> None: ...
-    def register(self, name: str, **kwargs) -> None: ...
-    def seqapplyreg(self, name: str, **kwargs) -> None: ...
-    def stack(self, name: str, *args, **kwargs) -> None: ...
+from .protocols import SirilInterface
 
 
 @dataclass

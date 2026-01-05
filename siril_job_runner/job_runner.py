@@ -8,14 +8,14 @@ from typing import Optional
 
 from .calibration import CalibrationManager, CalibrationDates
 from .protocols import SirilInterface
-from .composition import compose_and_stretch
+from .composition import compose_and_stretch, CompositionResult
 from .fits_utils import scan_multiple_directories, FrameInfo
 from .frame_analysis import (
     build_requirements_table, build_date_summary_table,
     format_date_summary_table, get_unique_filters
 )
 from .job_config import JobConfig, load_job
-from .logger import JobLogger
+from .logger import JobLogger, print_completion_summary
 from .preprocessing import preprocess_with_exposure_groups
 
 
@@ -244,11 +244,11 @@ class JobRunner:
             fwhm_filter=self.config.options.fwhm_filter,
         )
 
-    def run_composition(self, stacks: dict[str, Path]) -> dict[str, Path]:
+    def run_composition(self, stacks: dict[str, Path]) -> CompositionResult:
         """Run composition and stretching."""
         if self.dry_run:
             self.logger.step("[DRY RUN] Would compose and stretch")
-            return {}
+            return None
 
         # Check if we have multiple exposures per filter (HDR mode)
         filters_with_exposures = self._get_filters_with_exposures(stacks)
@@ -260,7 +260,7 @@ class JobRunner:
             self.logger.substep("Stacks available:")
             for name, path in sorted(stacks.items()):
                 self.logger.detail(f"  {path.name}")
-            return {"stacks": stacks}
+            return None
 
         # Single exposure per filter - can do auto-composition
         # Convert stack names to filter names for composition
@@ -303,7 +303,7 @@ class JobRunner:
                 result[filter_name].append(exposure)
         return result
 
-    def run(self) -> dict[str, Path]:
+    def run(self) -> Optional[CompositionResult]:
         """Run the full pipeline."""
         self.logger.info(f"Starting job: {self.config.name}")
         self.logger.info(f"Type: {self.config.job_type}")
@@ -321,10 +321,23 @@ class JobRunner:
         stacks = self.run_preprocessing(validation.frames)
 
         # Stage 3 & 4: Composition and Stretching
-        outputs = self.run_composition(stacks)
+        result = self.run_composition(stacks)
 
         self.logger.info(f"Job complete: {self.config.name}")
-        return outputs
+
+        # Print completion summary with user instructions
+        if result:
+            print_completion_summary(
+                job_name=self.config.name,
+                job_type=self.config.job_type,
+                linear_path=result.linear_path,
+                auto_fit=result.auto_fit,
+                auto_tif=result.auto_tif,
+                auto_jpg=result.auto_jpg,
+                stacks_dir=result.stacks_dir,
+            )
+
+        return result
 
     def close(self):
         """Close the logger."""

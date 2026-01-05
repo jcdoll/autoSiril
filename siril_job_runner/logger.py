@@ -131,6 +131,79 @@ class JobLogger:
         return False
 
 
+def print_completion_summary(
+    job_name: str,
+    job_type: str,
+    linear_path: Path,
+    auto_fit: Path,
+    auto_tif: Path,
+    auto_jpg: Path,
+    stacks_dir: Path,
+) -> None:
+    """
+    Print formatted completion summary with user instructions.
+
+    This provides clear guidance on:
+    1. Auto-processed outputs (ready to use)
+    2. Linear file for manual VeraLux processing
+    3. Linear stacks for advanced re-processing
+    """
+    # Determine type-specific names
+    type_lower = job_type.lower()
+
+    # Get list of stack files
+    stack_files = sorted(stacks_dir.glob("stack_*.fit"))
+
+    # Build the summary
+    lines = [
+        "",
+        "=" * 68,
+        f" Job Complete: {job_name}",
+        "=" * 68,
+        "",
+        " AUTO-PROCESSED OUTPUT",
+        " " + "-" * 21,
+        f" {auto_fit}",
+        f" {auto_tif}",
+        f" {auto_jpg}",
+        "",
+        " FOR MANUAL VERALUX PROCESSING",
+        " " + "-" * 29,
+        " Linear composed file (unstretched):",
+        f"   {linear_path}",
+        "",
+        " Steps:",
+        "   1. Open Siril GUI",
+        f"   2. File -> Open -> {linear_path.name}",
+        "   3. Scripts -> VeraLux HyperMetric Stretch",
+        "   4. Adjust parameters (or use Ready-to-Use mode)",
+        "   5. Apply stretch",
+        "   6. Image -> Saturation (adjust to taste)",
+        "   7. File -> Save As -> your_final_image.fit",
+        "",
+        " LINEAR STACKS (for advanced re-processing)",
+        " " + "-" * 42,
+    ]
+
+    for stack_file in stack_files:
+        lines.append(f" {stack_file}")
+
+    lines.extend([
+        "",
+        " Use these if you want to:",
+        "   - Re-compose with different linear_match settings",
+        "   - Apply different deconvolution to L",
+        "   - Process channels individually before composing",
+        "",
+        "=" * 68,
+        "",
+    ])
+
+    # Print all lines
+    for line in lines:
+        print(line)
+
+
 # Convenience function for simple logging without file output
 def create_logger(output_dir: Optional[Path] = None, job_name: str = "job") -> JobLogger:
     """Create a new JobLogger instance."""
