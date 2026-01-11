@@ -213,11 +213,15 @@ Examples:
 
         else:
             # Full pipeline
-            outputs = runner.run()
-            print()
-            print("Outputs:")
-            for name, path in outputs.items():
-                print(f"  {name}: {path}")
+            result = runner.run()
+            if result:
+                print()
+                print("Outputs:")
+                print(f"  Linear: {result.linear_path}")
+                print(f"  Auto FIT: {result.auto_fit}")
+                print(f"  Auto TIF: {result.auto_tif}")
+                print(f"  Auto JPG: {result.auto_jpg}")
+                print(f"  Stacks: {result.stacks_dir}")
             runner.close()
 
     except Exception as e:
