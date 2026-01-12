@@ -2,37 +2,16 @@
 FITS header reading utilities for Siril job processing.
 """
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from .config import DEFAULTS, Config
+from .models import ClippingInfo, FrameInfo
 
 try:
     from astropy.io import fits
 except ImportError:
     fits = None
-
-
-@dataclass
-class FrameInfo:
-    """Information extracted from a FITS frame header."""
-
-    path: Path
-    exposure: float  # seconds
-    temperature: float  # Celsius
-    filter_name: str
-    gain: Optional[int] = None
-
-    @property
-    def exposure_str(self) -> str:
-        """Exposure as string for matching (e.g., '300s')."""
-        return f"{int(self.exposure)}s"
-
-    @property
-    def temp_str(self) -> str:
-        """Temperature as string for matching (e.g., '-10C')."""
-        return f"{int(round(self.temperature))}C"
 
 
 # Common FITS keyword variations
@@ -130,31 +109,6 @@ def scan_multiple_directories(
 def temperatures_match(temp1: float, temp2: float, tolerance: float = 2.0) -> bool:
     """Check if two temperatures match within tolerance."""
     return abs(temp1 - temp2) <= tolerance
-
-
-@dataclass
-class ClippingInfo:
-    """Information about clipping in an image."""
-
-    path: Path
-    total_pixels: int
-    clipped_low: int  # Pixels clipped to black (near 0)
-    clipped_high: int  # Pixels clipped to white (near max)
-    bit_depth: int
-
-    @property
-    def clipped_low_percent(self) -> float:
-        """Percentage of pixels clipped to black."""
-        if self.total_pixels == 0:
-            return 0.0
-        return 100.0 * self.clipped_low / self.total_pixels
-
-    @property
-    def clipped_high_percent(self) -> float:
-        """Percentage of pixels clipped to white."""
-        if self.total_pixels == 0:
-            return 0.0
-        return 100.0 * self.clipped_high / self.total_pixels
 
 
 def check_clipping(path: Path, config: Config = DEFAULTS) -> Optional[ClippingInfo]:

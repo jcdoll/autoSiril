@@ -2,13 +2,12 @@
 Job runner - orchestrates the full processing pipeline.
 """
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .calibration import CalibrationDates, CalibrationManager
-from .composition import CompositionResult, compose_and_stretch
-from .fits_utils import FrameInfo, scan_multiple_directories
+from .calibration import CalibrationManager
+from .composition import compose_and_stretch
+from .fits_utils import scan_multiple_directories
 from .frame_analysis import (
     build_date_summary_table,
     build_requirements_table,
@@ -17,20 +16,9 @@ from .frame_analysis import (
 )
 from .job_config import load_job
 from .logger import JobLogger, print_completion_summary
+from .models import CalibrationDates, CompositionResult, FrameInfo, ValidationResult
 from .preprocessing import preprocess_with_exposure_groups
 from .protocols import SirilInterface
-
-
-@dataclass
-class ValidationResult:
-    """Result of job validation."""
-
-    valid: bool
-    frames: list[FrameInfo]
-    requirements: list
-    missing_calibration: list[str]
-    buildable_calibration: list[str]
-    message: str
 
 
 class JobRunner:

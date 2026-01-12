@@ -8,13 +8,12 @@ Supports stacking by exposure for HDR workflows.
 import os
 import shutil
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
 from .config import DEFAULTS, Config
-from .fits_utils import FrameInfo
 from .logger import JobLogger
+from .models import FrameInfo, StackGroup
 from .protocols import SirilInterface
 
 
@@ -52,24 +51,6 @@ def create_sequence_file(seq_path: Path, num_images: int, seq_name: str) -> None
         f.write("L -1\n")
         for i in range(1, num_images + 1):
             f.write(f"I {i} 1\n")
-
-
-@dataclass
-class StackGroup:
-    """A group of frames to stack together (same filter + exposure)."""
-
-    filter_name: str
-    exposure: float
-    frames: list[FrameInfo]
-
-    @property
-    def exposure_str(self) -> str:
-        return f"{int(self.exposure)}s"
-
-    @property
-    def stack_name(self) -> str:
-        """Name for the output stack file."""
-        return f"stack_{self.filter_name}_{self.exposure_str}"
 
 
 def group_frames_by_filter_exposure(frames: list[FrameInfo]) -> list[StackGroup]:

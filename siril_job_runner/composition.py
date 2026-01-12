@@ -6,13 +6,13 @@ Based on LRGB_pre.ssf and LRGB_compose.ssf workflows.
 """
 
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from .config import DEFAULTS, Config
 from .hdr import HDRBlender
 from .logger import JobLogger
+from .models import CompositionResult, StackInfo
 from .protocols import SirilInterface
 
 # Narrowband palette definitions (channel mappings)
@@ -20,31 +20,6 @@ PALETTES = {
     "HOO": {"R": "H", "G": "O", "B": "O"},
     "SHO": {"R": "S", "G": "H", "B": "O"},
 }
-
-
-@dataclass
-class StackInfo:
-    """Information about a discovered stack file."""
-
-    path: Path
-    filter_name: str
-    exposure: int  # seconds
-
-    @property
-    def name(self) -> str:
-        """Stack name without extension."""
-        return self.path.stem
-
-
-@dataclass
-class CompositionResult:
-    """Result of composition stage."""
-
-    linear_path: Path  # Unstretched composed image (for VeraLux)
-    auto_fit: Path  # Auto-stretched .fit
-    auto_tif: Path  # Auto-stretched .tif
-    auto_jpg: Path  # Auto-stretched .jpg
-    stacks_dir: Path  # Directory containing linear stacks
 
 
 def discover_stacks(stacks_dir: Path) -> dict[str, list[StackInfo]]:

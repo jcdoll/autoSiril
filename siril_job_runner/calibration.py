@@ -4,34 +4,14 @@ Calibration file management for Siril job processing.
 Handles finding, building, and caching master calibration files.
 """
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from .config import DEFAULTS, Config
 from .fits_utils import temperatures_match
 from .logger import JobLogger
+from .models import CalibrationDates, CalibrationStatus
 from .protocols import SirilInterface
-
-
-@dataclass
-class CalibrationDates:
-    """Dates for each type of calibration data."""
-
-    bias: str
-    darks: str
-    flats: str
-
-
-@dataclass
-class CalibrationStatus:
-    """Status of a calibration file."""
-
-    exists: bool
-    can_build: bool
-    master_path: Optional[Path]
-    raw_path: Optional[Path]
-    message: str
 
 
 class CalibrationManager:

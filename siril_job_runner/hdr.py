@@ -45,9 +45,9 @@ References
 from pathlib import Path
 from typing import Optional
 
-from .composition import StackInfo
 from .config import DEFAULTS, Config
 from .logger import JobLogger
+from .models import StackInfo
 from .protocols import SirilInterface
 
 
