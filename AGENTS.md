@@ -1,42 +1,87 @@
+# Additional Conventions Beyond the Built-in Functions
+
+As this project's AI coding tool, you must follow the additional conventions below, in addition to the built-in functions.
+
 # Overview
-- We use Github for version control and CI.
-- Code is written in python.
+
+Engineering tools for internal use.
+
+## Repository layout
+
+TODO
+
+## Tech Stack
+
+- Python
+	- Environment: `uv`
+	- Lint: `ruff`
+	- Test: `pytest`
+	- Type checking: `ty`
+	- Build: `hatchling`
+- Matlab
+	- Lint: `checkcode`
+	- Test: `runtests`
+- KLayout
+	- pcell: use python not ruby
+
+## Commands
+
+- Python
+	- Install: `uv sync` from pyproject.toml
+	- Lint: `uvx ruff check [path] --fix --extend-select I,B,SIM,C4,ISC,PIE && uvx ruff format [path]`
+	- Test: `uv run pytest`
+	- Type check: `uvx ty check [path]`
+- Matlab
+	- Test: `matlab -batch "runtests('tests')"
 
 ## Safety
-- If you think that a command might be destructive, provide the command to the user to run. When in doubt ask the user.
-- NEVER run `git checkout`.
 
-## Python dev environment
-- We use `uv` for venv management.
-- Use python commands as `uv run python ...` and be sure that `pyproject.toml` is configured.
+- Never run `git checkout` (destructive)
+- Never use unicode in code (breaks Python on Windows)
 
-## Always plan first
-- Typical workflow: user makes a request, you formulate a plan, you share the plan for approval. If approved you implement the plan.
-- NEVER assume that presenting a good plan means you should implement it. Request approval.
+## Workflow
 
-## Documentation standards
-- Do not use excessive bold in markdown documents. Use font styling very selectively.
-- Do not use emoji in either code or docs.
-- Do not include "last updated" dates for documentation or code.
-- Do not include copyright or author info in code.
-
-## Code quality
-- Maintain clean, readable code with clean separation of responsibilities and don't repeat yourself (DRY) design.
-- Do not maintain legacy baggage. Remove old interfaces when refactoring. Do not keep thin wrappers.
-
-## Linting
-- Always run `ruff` for linting after significant work is completed.
-
-```
-uvx ruff check [path] --fix --extend-select I,B,SIM,C4,ISC,PIE
-uvx ruff format [path]
-```
-
-- Fix any ruff errors manually as needed.
+- Plan first, share plan, get explicit approval before implementing
+- Never assume a good plan means you should implement it
+- If unsure or stuck, ask the user
+- If something fails, do not silently move on - ask for clarification
+- If `uv` fails due to permissions, consult user
 
 ## Testing
-- We write tests for all code and target >80% test coverage.
-- Use `pytest` for test code.
 
-## Miscellaneous
-- When sharing commands for the user to run, always specify them as a single line. Do not split with ` on multiple lines.
+- Run tests after changes; all tests must pass before task is complete
+- Prefer tests over manual verification
+
+## Code Quality
+
+- Use type hints and docstrings for all functions
+- Keep files under 300 LOC; split if longer
+- Fix all linter issues
+
+## Parameters
+
+- Single source of truth for defaults (e.g. config.py)
+- Use enums instead of bare strings
+- Never use `params.get('key', default)` pattern
+- Never use `if config then value else default` pattern
+
+## Refactoring
+
+- Delete old interfaces; no legacy wrappers or thin compatibility layers
+
+## Documentation
+
+- No emojis in code or docs
+- No excessive bold in markdown; use styling selectively
+- No "last updated" dates or authorship
+- Commands on single line, not split across lines
+
+## Hardware
+
+- Read project-specific docs and datasheets before making suggestions
+- Use exact part numbers, not generic equivalents
+- Prioritize safety over convenience; err on side of caution
+
+## Plotting
+
+- For python, include `addcopyfighandler` for easy matplotlib copy/paste

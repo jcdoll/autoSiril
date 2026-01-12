@@ -1,9 +1,15 @@
 ---
 name: code-review
-description: Reviews code for quality, security, and maintainability. Use after implementing features, completing significant work, or when user asks for code review.
-allowed-tools: Read, Grep, Glob, Bash
+description: >-
+  Reviews code for quality, security, and maintainability. Use after
+  implementing features, completing significant work, or when user asks for code
+  review.
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
 ---
-
 # Code Review
 
 ## Instructions
@@ -29,6 +35,11 @@ allowed-tools: Read, Grep, Glob, Bash
 - Error handling is comprehensive
 - No unused imports or variables
 - Clean separation of concerns
+
+### Parameters
+- Use enums rather than bare strings for parameters
+- Do not spread "magic strings" throughout the code, use a single source of truth for parameter defaults (config.py)
+- Do not use the "if (check config) then (value = from config) else (value = default)" pattern - this breaks the single source of truth rule
 
 ### Python Specific
 - Type hints used appropriately
