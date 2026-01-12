@@ -15,6 +15,11 @@ from .config import DEFAULTS, Config
 from .logger import JobLogger
 from .models import FrameInfo, StackGroup
 from .protocols import SirilInterface
+from .sequence_analysis import (
+    compute_adaptive_threshold,
+    format_stats_log,
+    parse_sequence_file,
+)
 
 
 def link_or_copy(src: Path, dest: Path) -> None:
@@ -98,6 +103,33 @@ class Preprocessor:
     def _log_detail(self, message: str) -> None:
         if self.logger:
             self.logger.detail(message)
+
+    def _compute_fwhm_threshold(
+        self, process_dir: Path, seq_name: str
+    ) -> Optional[float]:
+        """
+        Compute adaptive FWHM threshold from registration data.
+
+        Parses the .seq file after registration and uses GMM + dip test
+        to detect bimodality and compute appropriate threshold.
+
+        Returns:
+            FWHM threshold in pixels, or None if no filtering needed
+        """
+        seq_path = process_dir / f"{seq_name}.seq"
+
+        stats = parse_sequence_file(seq_path)
+        if stats is None:
+            self._log_detail("Could not parse sequence file for FWHM analysis")
+            return None
+
+        stats = compute_adaptive_threshold(stats, self.config)
+
+        # Log the analysis
+        for line in format_stats_log(stats):
+            self._log_detail(line)
+
+        return stats.threshold
 
     def _clean_process_dir(self, process_dir: Path) -> None:
         """Remove old Siril output files from process directory, preserving source/."""
@@ -214,6 +246,7 @@ class Preprocessor:
         create_sequence_file(seq_path, num_frames, "light")
 
         self._log("Calibrating...")
+        cfg = self.config
         if not self.siril.cd(str(process_dir)):
             raise RuntimeError(f"Failed to cd to process directory: {process_dir}")
         if not self.siril.calibrate(
@@ -224,26 +257,43 @@ class Preprocessor:
         ):
             raise RuntimeError("Failed to calibrate light sequence")
 
-        self._log("Background extraction...")
-        if not self.siril.seqsubsky("pp_light", 1):
-            raise RuntimeError("Failed to run background extraction on pp_light")
+        # Background extraction - try if enabled, gracefully skip on failure
+        if cfg.skip_background_extraction:
+            self._log("Skipping background extraction (configured)")
+            seq_for_register = "pp_light"
+        else:
+            self._log("Background extraction...")
+            if self.siril.seqsubsky(
+                "pp_light",
+                rbf=cfg.subsky_rbf,
+                degree=cfg.subsky_degree,
+                samples=cfg.subsky_samples,
+                tolerance=cfg.subsky_tolerance,
+                smooth=cfg.subsky_smooth,
+            ):
+                seq_for_register = "bkg_pp_light"
+            else:
+                self._log(
+                    "Background extraction failed (e.g., clipped data), continuing without"
+                )
+                seq_for_register = "pp_light"
 
         self._log("Registering (2-pass)...")
-        if not self.siril.register("bkg_pp_light", twopass=True):
-            raise RuntimeError("Failed to register bkg_pp_light sequence")
+        if not self.siril.register(seq_for_register, twopass=True):
+            raise RuntimeError(f"Failed to register {seq_for_register} sequence")
+
+        # Analyze FWHM distribution and compute adaptive threshold
+        fwhm_threshold = self._compute_fwhm_threshold(process_dir, seq_for_register)
 
         self._log("Applying registration...")
-        if not self.siril.seqapplyreg(
-            "bkg_pp_light",
-            filter_fwhm=f"{self.config.fwhm_filter}k",
-        ):
-            raise RuntimeError("Failed to apply registration to bkg_pp_light")
+        if not self.siril.seqapplyreg(seq_for_register, filter_fwhm=fwhm_threshold):
+            raise RuntimeError(f"Failed to apply registration to {seq_for_register}")
 
         self._log("Stacking...")
-        cfg = self.config
+        seq_for_stack = f"r_{seq_for_register}"
         stack_path = stacks_dir / f"{stack_name}.fit"
         if not self.siril.stack(
-            "r_bkg_pp_light",
+            seq_for_stack,
             cfg.stack_rejection,
             cfg.stack_weighting,
             cfg.stack_sigma_low,
@@ -252,7 +302,7 @@ class Preprocessor:
             fastnorm=True,
             out=str(stack_path),
         ):
-            raise RuntimeError(f"Failed to stack r_bkg_pp_light to {stack_path}")
+            raise RuntimeError(f"Failed to stack {seq_for_stack} to {stack_path}")
 
         if not stack_path.exists():
             raise FileNotFoundError(f"Stack output not created: {stack_path}")

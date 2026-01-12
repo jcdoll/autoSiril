@@ -27,7 +27,7 @@ def valid_job_dict():
         },
         "output": "M42/processed",
         "options": {
-            "fwhm_filter": 2.0,
+            "fwhm_bic_threshold": 15.0,
             "temp_tolerance": 3,
         },
     }
@@ -66,7 +66,7 @@ def test_job_config_options(valid_job_dict):
     """Test options parsing."""
     job = JobConfig.from_dict(valid_job_dict)
 
-    assert job.config.fwhm_filter == 2.0
+    assert job.config.fwhm_bic_threshold == 15.0
     assert job.config.temp_tolerance == 3
     assert job.config.denoise is False  # Default
 
@@ -86,7 +86,7 @@ def test_job_config_default_options():
     }
     job = JobConfig.from_dict(minimal)
 
-    assert job.config.fwhm_filter == 1.8
+    assert job.config.fwhm_bic_threshold == 10.0
     assert job.config.temp_tolerance == 2.0
     assert job.config.denoise is False
     assert job.config.palette == "HOO"
@@ -139,7 +139,8 @@ def test_get_light_directories(valid_job_dict):
 
 def test_config_defaults():
     """Test Config defaults."""
-    assert DEFAULTS.fwhm_filter == 1.8
+    assert DEFAULTS.fwhm_bic_threshold == 10.0
+    assert DEFAULTS.fwhm_bimodal_sigma == 3.0
     assert DEFAULTS.temp_tolerance == 2.0
     assert DEFAULTS.denoise is False
     assert DEFAULTS.palette == "HOO"
@@ -180,7 +181,7 @@ def test_config_override_any_value():
     assert job.config.stack_sigma_low == "2.5"
     assert job.config.clipping_high_16bit == 60000
     # Unchanged values stay at defaults
-    assert job.config.fwhm_filter == 1.8
+    assert job.config.fwhm_bic_threshold == 10.0
 
 
 def test_config_unknown_option_raises():
@@ -193,7 +194,7 @@ def test_config_unknown_option_raises():
 
 def test_config_settings_and_job_merge():
     """Test that settings.json and job options merge correctly."""
-    settings = {"options": {"fwhm_filter": 2.0, "temp_tolerance": 3.0}}
+    settings = {"options": {"fwhm_bic_threshold": 15.0, "temp_tolerance": 3.0}}
     job_dict = {
         "name": "Test",
         "type": "LRGB",
@@ -208,7 +209,7 @@ def test_config_settings_and_job_merge():
     }
     job = JobConfig.from_dict(job_dict, settings)
 
-    # fwhm_filter from settings
-    assert job.config.fwhm_filter == 2.0
+    # fwhm_bic_threshold from settings
+    assert job.config.fwhm_bic_threshold == 15.0
     # temp_tolerance from job (overrides settings)
     assert job.config.temp_tolerance == 5.0

@@ -11,6 +11,9 @@ authors = [
 
 dependencies = [
     "astropy>=6.0",
+    "diptest>=0.8",
+    "numpy>=1.24",
+    "scikit-learn>=1.4",
     "tqdm>=4.67.1",
     "xisf>=0.9.5",
 ]

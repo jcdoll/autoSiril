@@ -100,9 +100,20 @@ class SirilWrapper:
 
     # Background extraction
 
-    def seqsubsky(self, name: str, degree: int = 1) -> bool:
+    def seqsubsky(
+        self,
+        name: str,
+        rbf: bool = True,
+        degree: int = 1,
+        samples: int = 20,
+        tolerance: float = 1.0,
+        smooth: float = 0.5,
+    ) -> bool:
         """Background extraction on sequence."""
-        return self.execute(f"seqsubsky {name} {degree}")
+        method = "-rbf" if rbf else str(degree)
+        cmd = f"seqsubsky {name} {method}"
+        cmd += f" -samples={samples} -tolerance={tolerance} -smooth={smooth}"
+        return self.execute(cmd)
 
     # Registration
 
@@ -117,14 +128,21 @@ class SirilWrapper:
         self,
         name: str,
         framing: Optional[str] = None,
-        filter_fwhm: Optional[str] = None,
+        filter_fwhm: Optional[float] = None,
     ) -> bool:
-        """Apply registration to sequence."""
+        """
+        Apply registration to sequence.
+
+        Args:
+            name: Sequence name
+            framing: Framing mode (e.g., "min", "max", "current")
+            filter_fwhm: Absolute FWHM threshold in pixels (filters wFWHM)
+        """
         cmd = f"seqapplyreg {name}"
         if framing:
             cmd += f" -framing={framing}"
-        if filter_fwhm:
-            cmd += f" -filter-wfwhm={filter_fwhm}"
+        if filter_fwhm is not None:
+            cmd += f" -filter-wfwhm={filter_fwhm:.2f}"
         return self.execute(cmd)
 
     # Stacking

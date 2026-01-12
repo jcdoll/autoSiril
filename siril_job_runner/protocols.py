@@ -33,7 +33,15 @@ class SirilInterface(Protocol):
     ) -> bool: ...
 
     # Background extraction
-    def seqsubsky(self, name: str, degree: int = 1) -> bool: ...
+    def seqsubsky(
+        self,
+        name: str,
+        rbf: bool = True,
+        degree: int = 1,
+        samples: int = 20,
+        tolerance: float = 1.0,
+        smooth: float = 0.5,
+    ) -> bool: ...
 
     # Registration
     def register(self, name: str, twopass: bool = False) -> bool: ...
@@ -41,7 +49,7 @@ class SirilInterface(Protocol):
         self,
         name: str,
         framing: Optional[str] = None,
-        filter_fwhm: Optional[str] = None,
+        filter_fwhm: Optional[float] = None,
     ) -> bool: ...
 
     # Stacking

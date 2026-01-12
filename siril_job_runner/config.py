@@ -41,10 +41,31 @@ class Config:
     saturation_threshold: float = 0.0
 
     # Processing parameters
-    fwhm_filter: float = 1.8
     temp_tolerance: float = 2.0
     linear_match_low: float = 0.0
     linear_match_high: float = 0.92
+
+    # FWHM adaptive filtering (after registration)
+    fwhm_bic_threshold: float = (
+        10.0  # delta-BIC for 2-component GMM (>10 = very strong)
+    )
+    fwhm_dip_alpha: float = 0.05  # significance level for Hartigan dip test
+    fwhm_bimodal_sigma: float = (
+        3.0  # sigmas above lower mode mean for bimodal threshold
+    )
+    fwhm_cv_threshold: float = 0.15  # CV below which all images kept (15%)
+    fwhm_unimodal_percentile: float = 90.0  # percentile for high-variance unimodal
+    fwhm_min_images: int = 10  # minimum images for statistical filtering
+
+    # Background extraction (seqsubsky)
+    skip_background_extraction: bool = (
+        False  # Skip seqsubsky for bright targets like M42
+    )
+    subsky_rbf: bool = True  # Use RBF interpolation (preferred) vs polynomial degree
+    subsky_degree: int = 1  # Polynomial degree if subsky_rbf is False
+    subsky_samples: int = 20
+    subsky_tolerance: float = 1.0
+    subsky_smooth: float = 0.5
 
     # Light frame stacking
     stack_rejection: str = "rej"
