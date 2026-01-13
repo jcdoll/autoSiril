@@ -2,15 +2,29 @@
 Sequence file analysis for adaptive FWHM filtering.
 
 Parses Siril .seq files after registration to extract FWHM statistics
-and compute adaptive thresholds using GMM + dip test for bimodality detection.
+and compute adaptive thresholds based on distribution shape.
+
+Adaptive Filtering Decision Tree:
+    1. Bimodal (GMM+dip test): Two distinct populations of images.
+       -> Threshold at midpoint between modes to reject the worse mode.
+
+    2. Skewed (long tail): Single population with outliers on high end.
+       -> Threshold at median + k*MAD (aggressive tail cutting).
+
+    3. Broad symmetric (high CV, low skew): Wide but symmetric distribution.
+       -> Threshold at high percentile (permissive, just cut extremes).
+
+    4. Tight symmetric (low CV): All images similar quality.
+       -> Keep all images, no filtering needed.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 from diptest import diptest
+from scipy.stats import median_abs_deviation, skew
 from sklearn.mixture import GaussianMixture
 
 from .config import DEFAULTS, Config
@@ -25,19 +39,20 @@ class RegistrationStats:
     wfwhm_values: np.ndarray
     roundness_values: np.ndarray
 
-    # Computed statistics
+    # Basic statistics
     median: float
     mean: float
     std: float
-    cv: float  # coefficient of variation
+    cv: float  # coefficient of variation (std/mean)
+    skewness: float  # distribution skewness (>0 = right tail)
+    mad: float  # median absolute deviation
     q1: float
     q3: float
-    p90: float
 
     # Bimodality analysis
-    is_bimodal: bool
-    delta_bic: float
-    dip_pvalue: float
+    is_bimodal: bool = False
+    delta_bic: float = 0.0
+    dip_pvalue: float = 1.0
     gmm_means: Optional[np.ndarray] = None
     gmm_stds: Optional[np.ndarray] = None
     gmm_weights: Optional[np.ndarray] = None
@@ -45,7 +60,12 @@ class RegistrationStats:
     # Computed threshold
     threshold: Optional[float] = None
     threshold_reason: str = ""
+    filter_case: str = ""  # bimodal, skewed, broad, tight
     n_rejected: int = 0
+
+    # Histogram data
+    hist_bins: np.ndarray = field(default_factory=lambda: np.array([]))
+    hist_counts: np.ndarray = field(default_factory=lambda: np.array([]))
 
 
 def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
@@ -93,6 +113,11 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
     wfwhm = np.array(wfwhm_list)
     roundness = np.array(roundness_list)
 
+    # Compute histogram bins (1px wide, from floor to ceil)
+    bin_min = max(0, int(np.floor(fwhm.min())))
+    bin_max = int(np.ceil(fwhm.max())) + 1
+    hist_counts, hist_bins = np.histogram(fwhm, bins=range(bin_min, bin_max + 1))
+
     return RegistrationStats(
         n_images=len(fwhm),
         fwhm_values=fwhm,
@@ -102,12 +127,12 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
         mean=float(np.mean(fwhm)),
         std=float(np.std(fwhm)),
         cv=float(np.std(fwhm) / np.mean(fwhm)) if np.mean(fwhm) > 0 else 0.0,
+        skewness=float(skew(fwhm)),
+        mad=float(median_abs_deviation(fwhm)),
         q1=float(np.percentile(fwhm, 25)),
         q3=float(np.percentile(fwhm, 75)),
-        p90=float(np.percentile(fwhm, 90)),
-        is_bimodal=False,
-        delta_bic=0.0,
-        dip_pvalue=1.0,
+        hist_bins=hist_bins,
+        hist_counts=hist_counts,
     )
 
 
@@ -118,6 +143,10 @@ def detect_bimodality(
 ) -> tuple[bool, float, float, Optional[GaussianMixture]]:
     """
     Detect bimodality using GMM + BIC with dip test confirmation.
+
+    Uses two statistical tests that must both pass:
+    1. BIC comparison: 2-component GMM must fit significantly better than 1-component
+    2. Dip test: Distribution must have a significant "dip" indicating two modes
 
     Args:
         fwhm: Array of FWHM values
@@ -156,12 +185,20 @@ def compute_adaptive_threshold(
     config: Config = DEFAULTS,
 ) -> RegistrationStats:
     """
-    Compute adaptive FWHM threshold based on distribution analysis.
+    Compute adaptive FWHM threshold based on distribution shape.
 
-    Strategy:
-    1. If bimodal: threshold = lower_mode_mean + bimodal_sigma * lower_mode_std
-    2. If high CV (>cv_threshold): threshold = percentile
-    3. If low CV: no filtering (keep all)
+    Decision tree:
+        1. Bimodal (GMM+dip): threshold at midpoint between modes
+           - Cleanly separates two distinct image quality populations
+
+        2. Skewed (skewness > threshold): threshold at median + k*MAD
+           - Aggressively cuts the long tail of poor quality images
+
+        3. Broad symmetric (high CV, low skew): threshold at high percentile
+           - Permissive filtering, only removes extreme outliers
+
+        4. Tight symmetric (low CV): keep all images
+           - All images are similar quality, no filtering needed
 
     Args:
         stats: RegistrationStats from parse_sequence_file
@@ -172,15 +209,16 @@ def compute_adaptive_threshold(
     """
     fwhm = stats.fwhm_values
 
-    # Not enough images for statistical filtering
+    # Case 0: Not enough images for statistical filtering
     if stats.n_images < config.fwhm_min_images:
         stats.threshold = None
+        stats.filter_case = "insufficient"
         stats.threshold_reason = (
             f"Too few images ({stats.n_images} < {config.fwhm_min_images})"
         )
         return stats
 
-    # Detect bimodality
+    # Check for bimodality
     is_bimodal, delta_bic, dip_pvalue, gmm2 = detect_bimodality(
         fwhm,
         bic_threshold=config.fwhm_bic_threshold,
@@ -191,8 +229,8 @@ def compute_adaptive_threshold(
     stats.delta_bic = delta_bic
     stats.dip_pvalue = dip_pvalue
 
+    # Case 1: Bimodal distribution - two distinct populations
     if is_bimodal and gmm2 is not None:
-        # Extract GMM parameters
         means = gmm2.means_.flatten()
         stds = np.sqrt(gmm2.covariances_.flatten())
         weights = gmm2.weights_
@@ -208,38 +246,46 @@ def compute_adaptive_threshold(
         lower_std = stds[lower_idx]
         upper_mean = means[upper_idx]
 
-        # Threshold = min of (lower_mean + k*sigma) or midpoint between modes
-        # This ensures we don't include images from the upper mode
+        # Threshold = min of (lower_mean + k*sigma) or midpoint
+        # This ensures we cleanly separate the two modes
         sigma_threshold = lower_mean + config.fwhm_bimodal_sigma * lower_std
         midpoint_threshold = (lower_mean + upper_mean) / 2
 
         if sigma_threshold < midpoint_threshold:
             threshold = sigma_threshold
             stats.threshold_reason = (
-                f"Bimodal (dBIC={delta_bic:.1f}, dip_p={dip_pvalue:.3f}): "
-                f"{lower_mean:.2f} + {config.fwhm_bimodal_sigma}*{lower_std:.2f} = {threshold:.2f}"
+                f"{lower_mean:.2f} + {config.fwhm_bimodal_sigma}*{lower_std:.2f}"
             )
         else:
             threshold = midpoint_threshold
-            stats.threshold_reason = (
-                f"Bimodal (dBIC={delta_bic:.1f}, dip_p={dip_pvalue:.3f}): "
-                f"midpoint({lower_mean:.2f}, {upper_mean:.2f}) = {threshold:.2f}"
-            )
-        stats.threshold = float(threshold)
+            stats.threshold_reason = f"midpoint({lower_mean:.2f}, {upper_mean:.2f})"
 
-    elif stats.cv > config.fwhm_cv_threshold:
-        # High variance unimodal - use percentile
-        threshold = np.percentile(fwhm, config.fwhm_unimodal_percentile)
         stats.threshold = float(threshold)
+        stats.filter_case = "bimodal"
+
+    # Case 2: Skewed distribution - long tail on right
+    elif stats.skewness > config.fwhm_skew_threshold:
+        # Use median + k*MAD for robust tail cutting
+        threshold = stats.median + config.fwhm_skew_mad_factor * stats.mad
+        stats.threshold = float(threshold)
+        stats.filter_case = "skewed"
         stats.threshold_reason = (
-            f"High variance (CV={stats.cv:.1%} > {config.fwhm_cv_threshold:.0%}): "
-            f"P{config.fwhm_unimodal_percentile:.0f}={threshold:.2f}"
+            f"median({stats.median:.2f}) + "
+            f"{config.fwhm_skew_mad_factor}*MAD({stats.mad:.2f})"
         )
 
+    # Case 3: Broad symmetric distribution - high variance but not skewed
+    elif stats.cv > config.fwhm_cv_threshold:
+        threshold = np.percentile(fwhm, config.fwhm_broad_percentile)
+        stats.threshold = float(threshold)
+        stats.filter_case = "broad"
+        stats.threshold_reason = f"P{config.fwhm_broad_percentile:.0f}"
+
+    # Case 4: Tight symmetric distribution - keep all
     else:
-        # Low variance - keep all images
         stats.threshold = None
-        stats.threshold_reason = f"Low variance (CV={stats.cv:.1%}), keeping all"
+        stats.filter_case = "tight"
+        stats.threshold_reason = f"CV={stats.cv:.1%} < {config.fwhm_cv_threshold:.0%}"
 
     # Count how many would be rejected
     if stats.threshold is not None:
@@ -248,25 +294,80 @@ def compute_adaptive_threshold(
     return stats
 
 
+def format_histogram(stats: RegistrationStats, width: int = 30) -> list[str]:
+    """
+    Format FWHM distribution as text histogram.
+
+    Args:
+        stats: RegistrationStats with histogram data
+        width: Maximum bar width in characters
+
+    Returns:
+        List of histogram lines
+    """
+    if len(stats.hist_counts) == 0:
+        return []
+
+    lines = ["FWHM distribution:"]
+    max_count = max(stats.hist_counts) if len(stats.hist_counts) > 0 else 1
+
+    for i, count in enumerate(stats.hist_counts):
+        if count == 0:
+            continue
+
+        bin_start = stats.hist_bins[i]
+        bin_end = stats.hist_bins[i + 1]
+        pct = 100 * count / stats.n_images
+
+        # Scale bar to width
+        bar_len = int(width * count / max_count) if max_count > 0 else 0
+        bar = "#" * bar_len
+
+        # Mark threshold position
+        threshold_marker = ""
+        if stats.threshold is not None:
+            if bin_start <= stats.threshold < bin_end:
+                threshold_marker = " <-- threshold"
+            elif bin_start >= stats.threshold and i > 0:
+                if stats.hist_bins[i - 1] < stats.threshold:
+                    threshold_marker = " [rejected]"
+            elif bin_start >= stats.threshold:
+                threshold_marker = " [rejected]"
+
+        lines.append(
+            f"  {bin_start:4.0f}-{bin_end:4.0f}px: {bar:<{width}} {count:3d} ({pct:5.1f}%){threshold_marker}"
+        )
+
+    return lines
+
+
 def format_stats_log(stats: RegistrationStats) -> list[str]:
     """
     Format registration stats for logging.
 
-    Returns list of log lines.
+    Returns list of log lines including histogram and threshold decision.
     """
-    lines = [
-        f"FWHM stats: N={stats.n_images}, "
-        f"median={stats.median:.2f}, std={stats.std:.2f}, CV={stats.cv:.1%}",
-        f"Quartiles: Q1={stats.q1:.2f}, Q3={stats.q3:.2f}, P90={stats.p90:.2f}",
-    ]
+    lines = []
 
-    # Always log bimodality test results if we have enough images
+    # Histogram first for visual overview
+    lines.extend(format_histogram(stats))
+    lines.append("")  # blank line
+
+    # Basic statistics
+    lines.append(
+        f"Stats: N={stats.n_images}, median={stats.median:.2f}px, "
+        f"std={stats.std:.2f}, CV={stats.cv:.1%}, skew={stats.skewness:.2f}"
+    )
+
+    # Bimodality test results (if we have enough images)
     if stats.n_images >= 10:
         bimodal_str = "BIMODAL" if stats.is_bimodal else "unimodal"
         lines.append(
-            f"Bimodality test: dBIC={stats.delta_bic:.1f}, dip_p={stats.dip_pvalue:.3f} -> {bimodal_str}"
+            f"Bimodality: dBIC={stats.delta_bic:.1f}, "
+            f"dip_p={stats.dip_pvalue:.3f} -> {bimodal_str}"
         )
 
+    # GMM mode details if bimodal
     if stats.is_bimodal and stats.gmm_means is not None:
         sorted_idx = np.argsort(stats.gmm_means)
         mode_strs = [
@@ -275,13 +376,25 @@ def format_stats_log(stats: RegistrationStats) -> list[str]:
         ]
         lines.append(f"GMM modes: {', '.join(mode_strs)}")
 
+    # Threshold decision
+    case_descriptions = {
+        "bimodal": "Two populations detected",
+        "skewed": "Long tail detected",
+        "broad": "Broad symmetric distribution",
+        "tight": "Tight distribution, keeping all",
+        "insufficient": "Too few images for filtering",
+    }
+    case_desc = case_descriptions.get(stats.filter_case, stats.filter_case)
+
     if stats.threshold is not None:
         lines.append(
-            f"Threshold: {stats.threshold:.2f}px, "
-            f"rejecting {stats.n_rejected}/{stats.n_images} images"
+            f"Decision: {case_desc} -> threshold={stats.threshold:.2f}px "
+            f"({stats.threshold_reason})"
         )
-        lines.append(f"Reason: {stats.threshold_reason}")
+        lines.append(f"Result: Rejecting {stats.n_rejected}/{stats.n_images} images")
     else:
-        lines.append(f"No filtering: {stats.threshold_reason}")
+        lines.append(
+            f"Decision: {case_desc} -> no filtering ({stats.threshold_reason})"
+        )
 
     return lines

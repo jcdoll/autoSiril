@@ -33,9 +33,8 @@ class SirilInterface(Protocol):
     ) -> bool: ...
 
     # Background extraction
-    def seqsubsky(
+    def subsky(
         self,
-        name: str,
         rbf: bool = True,
         degree: int = 1,
         samples: int = 20,

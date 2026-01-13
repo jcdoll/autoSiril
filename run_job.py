@@ -57,8 +57,7 @@ def get_siril_interface():
         return SirilWrapper(siril), siril  # Return wrapper and raw for cleanup
     except ImportError:
         print("WARNING: pysiril not available.")
-        print("Install with: pip install pysiril")
-        print("Or from GitLab: pip install git+https://gitlab.com/nicniv/pysiril.git")
+        print("Install with: uv pip install git+https://gitlab.com/free-astro/pysiril.git")
         print("Running in validation-only mode.")
         return None, None
     except Exception as e:

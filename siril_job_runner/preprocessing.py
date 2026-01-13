@@ -257,43 +257,21 @@ class Preprocessor:
         ):
             raise RuntimeError("Failed to calibrate light sequence")
 
-        # Background extraction - try if enabled, gracefully skip on failure
-        if cfg.skip_background_extraction:
-            self._log("Skipping background extraction (configured)")
-            seq_for_register = "pp_light"
-        else:
-            self._log("Background extraction...")
-            if self.siril.seqsubsky(
-                "pp_light",
-                rbf=cfg.subsky_rbf,
-                degree=cfg.subsky_degree,
-                samples=cfg.subsky_samples,
-                tolerance=cfg.subsky_tolerance,
-                smooth=cfg.subsky_smooth,
-            ):
-                seq_for_register = "bkg_pp_light"
-            else:
-                self._log(
-                    "Background extraction failed (e.g., clipped data), continuing without"
-                )
-                seq_for_register = "pp_light"
-
         self._log("Registering (2-pass)...")
-        if not self.siril.register(seq_for_register, twopass=True):
-            raise RuntimeError(f"Failed to register {seq_for_register} sequence")
+        if not self.siril.register("pp_light", twopass=True):
+            raise RuntimeError("Failed to register pp_light sequence")
 
         # Analyze FWHM distribution and compute adaptive threshold
-        fwhm_threshold = self._compute_fwhm_threshold(process_dir, seq_for_register)
+        fwhm_threshold = self._compute_fwhm_threshold(process_dir, "pp_light")
 
         self._log("Applying registration...")
-        if not self.siril.seqapplyreg(seq_for_register, filter_fwhm=fwhm_threshold):
-            raise RuntimeError(f"Failed to apply registration to {seq_for_register}")
+        if not self.siril.seqapplyreg("pp_light", filter_fwhm=fwhm_threshold):
+            raise RuntimeError("Failed to apply registration to pp_light")
 
         self._log("Stacking...")
-        seq_for_stack = f"r_{seq_for_register}"
         stack_path = stacks_dir / f"{stack_name}.fit"
         if not self.siril.stack(
-            seq_for_stack,
+            "r_pp_light",
             cfg.stack_rejection,
             cfg.stack_weighting,
             cfg.stack_sigma_low,
@@ -302,10 +280,26 @@ class Preprocessor:
             fastnorm=True,
             out=str(stack_path),
         ):
-            raise RuntimeError(f"Failed to stack {seq_for_stack} to {stack_path}")
+            raise RuntimeError(f"Failed to stack r_pp_light to {stack_path}")
 
         if not stack_path.exists():
             raise FileNotFoundError(f"Stack output not created: {stack_path}")
+
+        # Background extraction on stacked image
+        self._log("Background extraction...")
+        if not self.siril.load(str(stack_path)):
+            raise RuntimeError(f"Failed to load stack: {stack_path}")
+        if self.siril.subsky(
+            rbf=cfg.subsky_rbf,
+            degree=cfg.subsky_degree,
+            samples=cfg.subsky_samples,
+            tolerance=cfg.subsky_tolerance,
+            smooth=cfg.subsky_smooth,
+        ):
+            if not self.siril.save(str(stack_path)):
+                raise RuntimeError(f"Failed to save stack after subsky: {stack_path}")
+        else:
+            self._log("Background extraction failed, continuing without")
 
         self._log(f"Complete -> {stack_path.name}")
         return stack_path

@@ -100,18 +100,17 @@ class SirilWrapper:
 
     # Background extraction
 
-    def seqsubsky(
+    def subsky(
         self,
-        name: str,
         rbf: bool = True,
         degree: int = 1,
         samples: int = 20,
         tolerance: float = 1.0,
         smooth: float = 0.5,
     ) -> bool:
-        """Background extraction on sequence."""
+        """Background extraction on loaded image."""
         method = "-rbf" if rbf else str(degree)
-        cmd = f"seqsubsky {name} {method}"
+        cmd = f"subsky {method}"
         cmd += f" -samples={samples} -tolerance={tolerance} -smooth={smooth}"
         return self.execute(cmd)
 

@@ -46,21 +46,21 @@ class Config:
     linear_match_high: float = 0.92
 
     # FWHM adaptive filtering (after registration)
-    fwhm_bic_threshold: float = (
-        10.0  # delta-BIC for 2-component GMM (>10 = very strong)
-    )
+    # Decision tree:
+    #   1. Bimodal (GMM+dip): threshold at midpoint between modes
+    #   2. Skewed (long tail): threshold at median + k*MAD (aggressive)
+    #   3. Broad symmetric (high CV): threshold at percentile (permissive)
+    #   4. Tight symmetric (low CV): keep all images
+    fwhm_min_images: int = 6  # minimum images for statistical filtering
+    fwhm_bic_threshold: float = 10.0  # delta-BIC for bimodality (>10 = very strong)
     fwhm_dip_alpha: float = 0.05  # significance level for Hartigan dip test
-    fwhm_bimodal_sigma: float = (
-        3.0  # sigmas above lower mode mean for bimodal threshold
-    )
+    fwhm_bimodal_sigma: float = 3.0  # sigmas above lower mode (fallback if > midpoint)
+    fwhm_skew_threshold: float = 1.0  # skewness above which distribution is "skewed"
+    fwhm_skew_mad_factor: float = 2.0  # MAD multiplier for skewed threshold
     fwhm_cv_threshold: float = 0.15  # CV below which all images kept (15%)
-    fwhm_unimodal_percentile: float = 90.0  # percentile for high-variance unimodal
-    fwhm_min_images: int = 10  # minimum images for statistical filtering
+    fwhm_broad_percentile: float = 95.0  # percentile for broad symmetric case
 
-    # Background extraction (seqsubsky)
-    skip_background_extraction: bool = (
-        False  # Skip seqsubsky for bright targets like M42
-    )
+    # Background extraction (post-stack subsky)
     subsky_rbf: bool = True  # Use RBF interpolation (preferred) vs polynomial degree
     subsky_degree: int = 1  # Polynomial degree if subsky_rbf is False
     subsky_samples: int = 20
