@@ -7,14 +7,8 @@ from typing import Optional
 
 from .calibration import CalibrationManager
 from .composition import compose_and_stretch
-from .fits_utils import scan_multiple_directories
-from .frame_analysis import (
-    build_date_summary_table,
-    build_requirements_table,
-    format_date_summary_table,
-    get_unique_filters,
-)
 from .job_config import load_job
+from .job_validation import validate_job
 from .logger import JobLogger, print_completion_summary
 from .models import CalibrationDates, CompositionResult, FrameInfo, ValidationResult
 from .preprocessing import preprocess_with_exposure_groups
@@ -77,133 +71,15 @@ class JobRunner:
         return actual_temp
 
     def validate(self) -> ValidationResult:
-        """
-        Validate the job - scan frames and check calibration.
-
-        Returns ValidationResult with details.
-        """
-        self.logger.step(f"Validating job: {self.config.name}")
-
-        # Scan all light frames
-        all_frames = []
-        for filter_name, dirs in self.config.lights.items():
-            full_dirs = [self.base_path / d for d in dirs]
-            frames = scan_multiple_directories(full_dirs)
-            all_frames.extend(frames)
-            self.logger.substep(
-                f"{filter_name}: {len(frames)} frames from {len(dirs)} dirs"
-            )
-
-        if not all_frames:
-            return ValidationResult(
-                valid=False,
-                frames=[],
-                requirements=[],
-                missing_calibration=[],
-                buildable_calibration=[],
-                message="No light frames found",
-            )
-
-        # Check saturation levels by exposure
-        from collections import defaultdict
-
-        from .fits_utils import check_clipping
-
-        by_exposure: dict[float, list] = defaultdict(list)
-        for frame in all_frames:
-            by_exposure[frame.exposure].append(frame)
-
-        self.logger.step("Clipping check:")
-        for exp in sorted(by_exposure.keys(), reverse=True):
-            frames_at_exp = by_exposure[exp]
-            # Sample frames to check clipping
-            sample = frames_at_exp[: min(5, len(frames_at_exp))]
-            low_pcts = []
-            high_pcts = []
-            for frame in sample:
-                info = check_clipping(frame.path, self.config.config)
-                if info:
-                    low_pcts.append(info.clipped_low_percent)
-                    high_pcts.append(info.clipped_high_percent)
-            if low_pcts and high_pcts:
-                avg_low = sum(low_pcts) / len(low_pcts)
-                avg_high = sum(high_pcts) / len(high_pcts)
-                self.logger.substep(
-                    f"{int(exp)}s: {avg_low:.3f}% black, {avg_high:.3f}% white ({len(frames_at_exp)} frames)"
-                )
-
-        # Show date summary table
-        date_summary = build_date_summary_table(all_frames)
-        all_filters = sorted(get_unique_filters(all_frames))
-        # Reorder filters to put common ones first: L, R, G, B, H, S, O
-        filter_order = ["L", "R", "G", "B", "H", "S", "O"]
-        ordered_filters = [f for f in filter_order if f in all_filters]
-        ordered_filters += [f for f in all_filters if f not in filter_order]
-
-        self.logger.step("Frames by date:")
-        for line in format_date_summary_table(date_summary, ordered_filters):
-            self.logger.info(line)
-
-        # Build requirements table
-        requirements = build_requirements_table(all_frames)
-        self.logger.step("Requirements:")
-        for req in requirements:
-            self.logger.substep(
-                f"{req.filter_name}: {req.exposure_str} @ {req.temp_str} ({req.count} frames)"
-            )
-
-        # Check calibration availability
-        missing = []
-        buildable = []
-
-        # Check bias (single, no temperature dependency)
-        status = self.cal_manager.check_bias()
-        if not status.exists and not status.can_build:
-            missing.append("bias")
-        elif not status.exists and status.can_build:
-            buildable.append("bias")
-
-        # Check darks for each exposure/temp combo (with override if set)
-        dark_combos = {
-            (req.exposure, self._get_dark_temp(req.temperature)) for req in requirements
-        }
-        for exp, temp in dark_combos:
-            status = self.cal_manager.check_dark(exp, temp)
-            if not status.exists and not status.can_build:
-                missing.append(f"dark_{int(exp)}s_{int(temp)}C")
-            elif not status.exists and status.can_build:
-                buildable.append(f"dark_{int(exp)}s_{int(temp)}C")
-
-        # Check flats for each filter
-        filters = {req.filter_name for req in requirements}
-        for filter_name in filters:
-            status = self.cal_manager.check_flat(filter_name)
-            if not status.exists and not status.can_build:
-                missing.append(f"flat_{filter_name}")
-            elif not status.exists and status.can_build:
-                buildable.append(f"flat_{filter_name}")
-
-        # Report status
-        self.logger.step("Calibration status:")
-        for name in buildable:
-            self.logger.substep(f"[BUILD] {name}")
-        for name in missing:
-            self.logger.substep(f"[MISSING] {name}")
-
-        valid = len(missing) == 0
-        message = (
-            "Validation passed"
-            if valid
-            else f"Missing {len(missing)} calibration files"
-        )
-
-        return ValidationResult(
-            valid=valid,
-            frames=all_frames,
-            requirements=requirements,
-            missing_calibration=missing,
-            buildable_calibration=buildable,
-            message=message,
+        """Validate the job - scan frames and check calibration."""
+        return validate_job(
+            job_name=self.config.name,
+            lights=self.config.lights,
+            base_path=self.base_path,
+            cal_manager=self.cal_manager,
+            config=self.config.config,
+            logger=self.logger,
+            get_dark_temp=self._get_dark_temp,
         )
 
     def run_calibration(self, validation: ValidationResult) -> None:

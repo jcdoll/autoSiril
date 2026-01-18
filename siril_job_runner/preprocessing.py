@@ -5,83 +5,24 @@ Handles per-channel preprocessing: convert, calibrate, subsky, register, stack.
 Supports stacking by exposure for HDR workflows.
 """
 
-import os
 import shutil
-from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Optional
 
 from .config import DEFAULTS, Config
 from .logger import JobLogger
 from .models import FrameInfo, StackGroup
+from .preprocessing_pipeline import run_pipeline
+from .preprocessing_utils import group_frames_by_filter_exposure, link_or_copy
 from .protocols import SirilInterface
-from .sequence_analysis import (
-    compute_adaptive_threshold,
-    find_valid_reference,
-    format_stats_log,
-    parse_sequence_file,
-)
 
-
-def link_or_copy(src: Path, dest: Path) -> None:
-    """Hard link if possible, otherwise copy."""
-    try:
-        os.link(src, dest)
-    except OSError:
-        # Cross-device link or unsupported filesystem, fall back to copy
-        shutil.copy2(src, dest)
-
-
-def create_sequence_file(seq_path: Path, num_images: int, seq_name: str) -> None:
-    """
-    Create a Siril .seq file directly.
-
-    Format matches pysiril's CreateSeqFile output:
-    - Header comments
-    - S line: sequence metadata (fixed_len=5 for 5-digit numbering)
-    - L line: layer count (-1 = auto)
-    - I lines: one per image (index, included flag)
-    """
-    with open(seq_path, "w", newline="") as f:
-        f.write(
-            "#Siril sequence file. "
-            "Contains list of files (images), selection, and registration data\n"
-        )
-        f.write(
-            "#S 'sequence_name' start_index nb_images nb_selected "
-            "fixed_len reference_image version\n"
-        )
-        # S 'name' start nb_images nb_selected fixed_len ref_image version
-        # fixed_len=5 means 5-digit numbering (00001, 00002, etc.)
-        f.write(f"S '{seq_name}' 1 {num_images} {num_images} 5 -1 1\n")
-        f.write("L -1\n")
-        for i in range(1, num_images + 1):
-            f.write(f"I {i} 1\n")
-
-
-def group_frames_by_filter_exposure(frames: list[FrameInfo]) -> list[StackGroup]:
-    """
-    Group frames by (filter, exposure) for separate stacking.
-
-    Returns list of StackGroup, sorted by filter then exposure.
-    """
-    groups: dict[tuple[str, float], list[FrameInfo]] = defaultdict(list)
-
-    for frame in frames:
-        key = (frame.filter_name, frame.exposure)
-        groups[key].append(frame)
-
-    result = []
-    for (filter_name, exposure), frame_list in sorted(groups.items()):
-        result.append(
-            StackGroup(
-                filter_name=filter_name,
-                exposure=exposure,
-                frames=frame_list,
-            )
-        )
-
-    return result
+# Re-export for backwards compatibility
+__all__ = [
+    "link_or_copy",
+    "group_frames_by_filter_exposure",
+    "Preprocessor",
+    "preprocess_with_exposure_groups",
+]
 
 
 class Preprocessor:
@@ -104,47 +45,6 @@ class Preprocessor:
     def _log_detail(self, message: str) -> None:
         if self.logger:
             self.logger.detail(message)
-
-    def _compute_fwhm_threshold(
-        self, process_dir: Path, seq_name: str
-    ) -> Optional[float]:
-        """
-        Compute adaptive FWHM threshold from registration data.
-
-        Parses the .seq file after registration and uses GMM + dip test
-        to detect bimodality and compute appropriate threshold.
-
-        Also checks if the reference image would be filtered out and
-        sets a new reference if needed.
-
-        Returns:
-            FWHM threshold in pixels, or None if no filtering needed
-        """
-        seq_path = process_dir / f"{seq_name}.seq"
-
-        stats = parse_sequence_file(seq_path)
-        if stats is None:
-            self._log_detail("Could not parse sequence file for FWHM analysis")
-            return None
-
-        stats = compute_adaptive_threshold(stats, self.config)
-
-        # Log the analysis
-        for line in format_stats_log(stats):
-            self._log_detail(line)
-
-        # Check if reference image would be filtered out
-        if stats.threshold is not None:
-            new_ref = find_valid_reference(stats)
-            if new_ref is not None:
-                self._log(
-                    f"Reference image (wFWHM={stats.reference_wfwhm:.2f}px) "
-                    f"exceeds threshold, switching to image {new_ref}"
-                )
-                if not self.siril.setref(seq_name, new_ref):
-                    self._log("Warning: Failed to set new reference image")
-
-        return stats.threshold
 
     def _clean_process_dir(self, process_dir: Path) -> None:
         """Remove old Siril output files from process directory, preserving source/."""
@@ -240,7 +140,8 @@ class Preprocessor:
 
         num_frames = self._prepare_frames(group, process_dir)
 
-        stack_path = self._run_pipeline(
+        stack_path = run_pipeline(
+            siril=self.siril,
             num_frames=num_frames,
             process_dir=process_dir,
             stacks_dir=stacks_dir,
@@ -248,6 +149,9 @@ class Preprocessor:
             bias_master=bias_master,
             dark_master=dark_master,
             flat_master=flat_master,
+            config=self.config,
+            log_fn=self._log,
+            log_detail_fn=self._log_detail,
         )
 
         return stack_path
@@ -278,95 +182,6 @@ class Preprocessor:
             f"Prepared {linked_count} frames ({len(fit_files)} files in {process_dir})"
         )
         return linked_count
-
-    def _run_pipeline(
-        self,
-        num_frames: int,
-        process_dir: Path,
-        stacks_dir: Path,
-        stack_name: str,
-        bias_master: Path,
-        dark_master: Path,
-        flat_master: Path,
-    ) -> Path:
-        """Run the preprocessing pipeline."""
-        for name, path in [
-            ("bias", bias_master),
-            ("dark", dark_master),
-            ("flat", flat_master),
-        ]:
-            if not path.exists():
-                raise FileNotFoundError(
-                    f"Calibration master not found: {name} at {path}"
-                )
-
-        seq_path = process_dir / "light.seq"
-        self._log("Creating sequence file...")
-        create_sequence_file(seq_path, num_frames, "light")
-
-        self._log("Calibrating...")
-        cfg = self.config
-        if not self.siril.cd(str(process_dir)):
-            raise RuntimeError(f"Failed to cd to process directory: {process_dir}")
-        if not self.siril.calibrate(
-            "light",
-            bias=str(bias_master),
-            dark=str(dark_master),
-            flat=str(flat_master),
-        ):
-            raise RuntimeError("Failed to calibrate light sequence")
-
-        self._log("Registering (2-pass)...")
-        if not self.siril.register("pp_light", twopass=True):
-            raise RuntimeError("Failed to register pp_light sequence")
-
-        # Analyze FWHM distribution and compute adaptive threshold
-        fwhm_threshold = self._compute_fwhm_threshold(process_dir, "pp_light")
-
-        self._log("Applying registration...")
-        if not self.siril.seqapplyreg("pp_light", filter_fwhm=fwhm_threshold):
-            raise RuntimeError("Failed to apply registration to pp_light")
-
-        self._log("Stacking...")
-        stack_path = stacks_dir / f"{stack_name}.fit"
-        if not self.siril.stack(
-            "r_pp_light",
-            cfg.stack_rejection,
-            cfg.stack_weighting,
-            cfg.stack_sigma_low,
-            cfg.stack_sigma_high,
-            norm=cfg.stack_norm,
-            fastnorm=True,
-            out=str(stack_path),
-        ):
-            raise RuntimeError(f"Failed to stack r_pp_light to {stack_path}")
-
-        if not stack_path.exists():
-            raise FileNotFoundError(f"Stack output not created: {stack_path}")
-
-        # Background extraction on stacked image (optional)
-        if cfg.subsky_enabled:
-            self._log("Background extraction...")
-            if not self.siril.load(str(stack_path)):
-                raise RuntimeError(f"Failed to load stack: {stack_path}")
-            if self.siril.subsky(
-                rbf=cfg.subsky_rbf,
-                degree=cfg.subsky_degree,
-                samples=cfg.subsky_samples,
-                tolerance=cfg.subsky_tolerance,
-                smooth=cfg.subsky_smooth,
-            ):
-                if not self.siril.save(str(stack_path)):
-                    raise RuntimeError(
-                        f"Failed to save stack after subsky: {stack_path}"
-                    )
-            else:
-                self._log("Background extraction failed, continuing without")
-        else:
-            self._log("Background extraction disabled")
-
-        self._log(f"Complete -> {stack_path.name}")
-        return stack_path
 
 
 def preprocess_with_exposure_groups(

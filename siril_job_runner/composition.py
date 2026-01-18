@@ -5,65 +5,28 @@ Handles LRGB composition, narrowband palette mixing, and stretching.
 Based on LRGB_pre.ssf and LRGB_compose.ssf workflows.
 """
 
-import re
 from pathlib import Path
 from typing import Optional
 
-from . import (
-    veralux_revela,
-    veralux_silentium,
-    veralux_starcomposer,
-    veralux_stretch,
-    veralux_vectra,
-)
+from .compose_broadband import compose_lrgb, compose_rgb
+from .compose_narrowband import compose_narrowband
 from .config import DEFAULTS, Config
 from .fits_utils import check_color_balance
 from .hdr import HDRBlender
 from .logger import JobLogger
 from .models import CompositionResult, StackInfo
 from .protocols import SirilInterface
-from .psf_analysis import analyze_psf, format_psf_stats
+from .stack_discovery import PALETTES, discover_stacks, is_hdr_mode
+from .stretch_pipeline import StretchPipeline
 
-# Narrowband palette definitions (channel mappings)
-PALETTES = {
-    "HOO": {"R": "H", "G": "O", "B": "O"},
-    "SHO": {"R": "S", "G": "H", "B": "O"},
-}
-
-
-def discover_stacks(stacks_dir: Path) -> dict[str, list[StackInfo]]:
-    """
-    Discover stacks in the stacks directory.
-
-    Parses filenames like `stack_L_180s.fit` to extract filter and exposure.
-
-    Returns:
-        Dict mapping filter name to list of StackInfo (multiple if HDR)
-    """
-    pattern = re.compile(r"^stack_([A-Z]+)_(\d+)s\.fit$")
-    result: dict[str, list[StackInfo]] = {}
-
-    for path in stacks_dir.glob("stack_*_*s.fit"):
-        match = pattern.match(path.name)
-        if match:
-            filter_name = match.group(1)
-            exposure = int(match.group(2))
-            info = StackInfo(path=path, filter_name=filter_name, exposure=exposure)
-
-            if filter_name not in result:
-                result[filter_name] = []
-            result[filter_name].append(info)
-
-    # Sort each filter's stacks by exposure
-    for filter_name in result:
-        result[filter_name].sort(key=lambda s: s.exposure)
-
-    return result
-
-
-def is_hdr_mode(stacks: dict[str, list[StackInfo]]) -> bool:
-    """Check if any filter has multiple exposures (HDR mode)."""
-    return any(len(stack_list) > 1 for stack_list in stacks.values())
+# Re-export for backwards compatibility
+__all__ = [
+    "PALETTES",
+    "discover_stacks",
+    "is_hdr_mode",
+    "Composer",
+    "compose_and_stretch",
+]
 
 
 class Composer:
@@ -91,6 +54,7 @@ class Composer:
         self.config = config
         self.logger = logger
         self.stacks_dir = self.output_dir / "stacks"
+        self._stretch_pipeline = StretchPipeline(siril, output_dir, config, self._log)
 
     def _log(self, message: str) -> None:
         if self.logger:
@@ -117,333 +81,38 @@ class Composer:
                 f"{balance.dominant_channel} dominates by {balance.dominance_ratio:.1f}x"
             )
 
-    def _apply_color_removal(self) -> bool:
-        """Apply color cast removal based on config mode."""
-        cfg = self.config
-        if cfg.color_removal_mode == "none":
-            return True
-
-        if cfg.color_removal_mode == "green":
-            self._log("Removing green cast (SCNR)...")
-            return self.siril.rmgreen(
-                type=cfg.rmgreen_type,
-                amount=cfg.rmgreen_amount,
-                preserve_lightness=cfg.rmgreen_preserve_lightness,
-            )
-        elif cfg.color_removal_mode == "magenta":
-            self._log("Removing magenta cast (negative-SCNR-negative)...")
-            if not self.siril.negative():
-                return False
-            if not self.siril.rmgreen(
-                type=cfg.rmgreen_type,
-                amount=cfg.rmgreen_amount,
-                preserve_lightness=cfg.rmgreen_preserve_lightness,
-            ):
-                return False
-            return self.siril.negative()
-        else:
-            self._log(f"Unknown color_removal_mode: {cfg.color_removal_mode}")
-            return True
-
     def compose_lrgb(
         self,
         stacks: dict[str, list[StackInfo]],
     ) -> CompositionResult:
-        """
-        Compose LRGB image from stacked channels.
-
-        Args:
-            stacks: Dict from discover_stacks() - filter name to list of StackInfo
-
-        Returns CompositionResult with paths to all outputs.
-        """
-        self._log_step("Composing LRGB")
-
-        # Verify all required channels (single exposure each)
-        for ch in ["L", "R", "G", "B"]:
-            if ch not in stacks:
-                raise ValueError(f"Missing required channel: {ch}")
-            if len(stacks[ch]) != 1:
-                raise ValueError(
-                    f"Expected single exposure for {ch}, got {len(stacks[ch])}"
-                )
-
-        self.siril.cd(str(self.stacks_dir))
-
-        # Step 1: Register stacks to each other
-        # After convert, files are numbered alphabetically: B=1, G=2, L=3, R=4
-        self._log("Cross-registering stacks...")
-        self.siril.convert("stack", out="./registered")
-        self.siril.cd(str(self.stacks_dir / "registered"))
-        self.siril.register("stack", twopass=True)
-        self.siril.seqapplyreg("stack", framing="min")
-
-        # Step 2: Linear match to reference (R)
-        # Alphabetical order: B=00001, G=00002, L=00003, R=00004
-        self._log("Linear matching to R reference...")
-        self.siril.load("r_stack_00004")  # R
-        self.siril.save("R")
-
-        cfg = self.config
-        self.siril.load("r_stack_00001")  # B
-        self.siril.linear_match("R", cfg.linear_match_low, cfg.linear_match_high)
-        self.siril.save("B")
-
-        self.siril.load("r_stack_00002")  # G
-        self.siril.linear_match("R", cfg.linear_match_low, cfg.linear_match_high)
-        self.siril.save("G")
-
-        self.siril.load("r_stack_00003")  # L
-        self.siril.linear_match("R", cfg.linear_match_low, cfg.linear_match_high)
-        self.siril.save("L")
-
-        # Step 3: Optional deconvolution on L
-        l_name = "L"
-        if cfg.deconv_enabled:
-            self._log("Deconvolving L channel...")
-            self.siril.load("L")
-            psf_path = (
-                str(self.output_dir / "psf_L.fit") if cfg.deconv_save_psf else None
-            )
-            if self.siril.makepsf(
-                method=cfg.deconv_psf_method,
-                symmetric=True,
-                save_psf=psf_path,
-            ):
-                if psf_path:
-                    self._log("PSF saved: psf_L.fit")
-                    psf_stats = analyze_psf(Path(psf_path))
-                    if psf_stats:
-                        for line in format_psf_stats(psf_stats):
-                            self._log(f"  {line}")
-                if self.siril.rl(
-                    iters=cfg.deconv_iterations,
-                    regularization=cfg.deconv_regularization,
-                    alpha=cfg.deconv_alpha,
-                ):
-                    self.siril.save("L_deconv")
-                    l_name = "L_deconv"
-                else:
-                    self._log("Deconvolution failed, using original L")
-            else:
-                self._log("PSF creation failed, skipping deconvolution")
-
-        # Step 4: Compose RGB
-        self._log("Creating RGB composite...")
-        self.siril.rgbcomp(r="R", g="G", b="B", out="rgb")
-
-        # Step 5: Add luminance
-        self._log("Adding luminance channel...")
-        self.siril.rgbcomp(lum=l_name, rgb="rgb", out="lrgb")
-
-        # Save linear (unstretched) result
-        linear_path = self.output_dir / "lrgb_linear.fit"
-        self.siril.load("lrgb")
-        self.siril.save(str(linear_path))
-        self._log(f"Saved linear: {linear_path.name}")
-        self._log_color_balance(linear_path)
-
-        # Step 6: Spectrophotometric Color Calibration (optional)
-        # SPCC uses actual sensor QE and filter curves for accurate calibration
-        linear_pcc_path = None
-        stretch_source = "lrgb"
-
-        if cfg.spcc_enabled:
-            self._log("Color calibration (SPCC)...")
-            if self.siril.spcc(
-                sensor=cfg.spcc_sensor,
-                red_filter=cfg.spcc_red_filter,
-                green_filter=cfg.spcc_green_filter,
-                blue_filter=cfg.spcc_blue_filter,
-            ):
-                linear_pcc_path = self.output_dir / "lrgb_linear_spcc.fit"
-                self.siril.save(str(linear_pcc_path))
-                stretch_source = str(linear_pcc_path)
-                self._log(f"Saved color-calibrated: {linear_pcc_path.name}")
-            else:
-                self._log("SPCC failed, using uncalibrated image")
-        else:
-            self._log("SPCC disabled, skipping color calibration")
-
-        # Step 7: Color cast removal
-        if cfg.color_removal_mode != "none":
-            self.siril.load(stretch_source)
-            if self._apply_color_removal():
-                self.siril.save(stretch_source)
-            else:
-                self._log("Color removal failed, continuing without")
-
-        # Step 8: Optional deconvolution on RGB composite
-        if cfg.deconv_enabled:
-            self._log("Deconvolving RGB composite...")
-            self.siril.load(stretch_source)
-            psf_path = (
-                str(self.output_dir / "psf_lrgb.fit") if cfg.deconv_save_psf else None
-            )
-            if self.siril.makepsf(
-                method=cfg.deconv_psf_method,
-                symmetric=True,
-                save_psf=psf_path,
-            ):
-                if psf_path:
-                    self._log("PSF saved: psf_lrgb.fit")
-                    psf_stats = analyze_psf(Path(psf_path))
-                    if psf_stats:
-                        for line in format_psf_stats(psf_stats):
-                            self._log(f"  {line}")
-                if self.siril.rl(
-                    iters=cfg.deconv_iterations,
-                    regularization=cfg.deconv_regularization,
-                    alpha=cfg.deconv_alpha,
-                ):
-                    deconv_path = self.output_dir / "lrgb_deconv.fit"
-                    self.siril.save(str(deconv_path))
-                    stretch_source = str(deconv_path)
-                    self._log(f"Saved deconvolved: {deconv_path.name}")
-                else:
-                    self._log("RGB deconvolution failed, using original")
-            else:
-                self._log("RGB PSF creation failed, skipping deconvolution")
-
-        # Step 8: Auto-stretch and save
-        auto_paths = self._auto_stretch(stretch_source, "lrgb_auto")
-
-        return CompositionResult(
-            linear_path=linear_path,
-            linear_pcc_path=linear_pcc_path,
-            auto_fit=auto_paths["fit"],
-            auto_tif=auto_paths["tif"],
-            auto_jpg=auto_paths["jpg"],
+        """Compose LRGB image from stacked channels."""
+        return compose_lrgb(
+            siril=self.siril,
+            stacks=stacks,
             stacks_dir=self.stacks_dir,
+            output_dir=self.output_dir,
+            config=self.config,
+            stretch_pipeline=self._stretch_pipeline,
+            log_fn=self._log,
+            log_step_fn=self._log_step,
+            log_color_balance_fn=self._log_color_balance,
         )
 
     def compose_rgb(
         self,
         stacks: dict[str, list[StackInfo]],
     ) -> CompositionResult:
-        """
-        Compose RGB image (no luminance channel).
-
-        For cases where L channel is not available.
-        """
-        self._log_step("Composing RGB")
-
-        # Verify required channels
-        for ch in ["R", "G", "B"]:
-            if ch not in stacks:
-                raise ValueError(f"Missing required channel: {ch}")
-            if len(stacks[ch]) != 1:
-                raise ValueError(
-                    f"Expected single exposure for {ch}, got {len(stacks[ch])}"
-                )
-
-        self.siril.cd(str(self.stacks_dir))
-
-        # Register stacks
-        # Alphabetical: B=00001, G=00002, R=00003
-        self._log("Cross-registering stacks...")
-        self.siril.convert("stack", out="./registered")
-        self.siril.cd(str(self.stacks_dir / "registered"))
-        self.siril.register("stack", twopass=True)
-        self.siril.seqapplyreg("stack", framing="min")
-
-        # Linear match to R
-        self._log("Linear matching to R reference...")
-        self.siril.load("r_stack_00003")  # R
-        self.siril.save("R")
-
-        cfg = self.config
-        self.siril.load("r_stack_00001")  # B
-        self.siril.linear_match("R", cfg.linear_match_low, cfg.linear_match_high)
-        self.siril.save("B")
-
-        self.siril.load("r_stack_00002")  # G
-        self.siril.linear_match("R", cfg.linear_match_low, cfg.linear_match_high)
-        self.siril.save("G")
-
-        # Compose RGB
-        self._log("Creating RGB composite...")
-        self.siril.rgbcomp(r="R", g="G", b="B", out="rgb")
-
-        # Save linear result
-        linear_path = self.output_dir / "rgb_linear.fit"
-        self.siril.load("rgb")
-        self.siril.save(str(linear_path))
-        self._log(f"Saved linear: {linear_path.name}")
-        self._log_color_balance(linear_path)
-
-        # Spectrophotometric Color Calibration (optional)
-        # SPCC uses actual sensor QE and filter curves for accurate calibration
-        linear_pcc_path = None
-        stretch_source = "rgb"
-
-        if cfg.spcc_enabled:
-            self._log("Color calibration (SPCC)...")
-            if self.siril.spcc(
-                sensor=cfg.spcc_sensor,
-                red_filter=cfg.spcc_red_filter,
-                green_filter=cfg.spcc_green_filter,
-                blue_filter=cfg.spcc_blue_filter,
-            ):
-                linear_pcc_path = self.output_dir / "rgb_linear_spcc.fit"
-                self.siril.save(str(linear_pcc_path))
-                stretch_source = str(linear_pcc_path)
-                self._log(f"Saved color-calibrated: {linear_pcc_path.name}")
-            else:
-                self._log("SPCC failed, using uncalibrated image")
-        else:
-            self._log("SPCC disabled, skipping color calibration")
-
-        # Color cast removal
-        if cfg.color_removal_mode != "none":
-            self.siril.load(stretch_source)
-            if self._apply_color_removal():
-                self.siril.save(stretch_source)
-            else:
-                self._log("Color removal failed, continuing without")
-
-        # Optional deconvolution on RGB composite
-        if cfg.deconv_enabled:
-            self._log("Deconvolving RGB composite...")
-            self.siril.load(stretch_source)
-            psf_path = (
-                str(self.output_dir / "psf_rgb.fit") if cfg.deconv_save_psf else None
-            )
-            if self.siril.makepsf(
-                method=cfg.deconv_psf_method,
-                symmetric=True,
-                save_psf=psf_path,
-            ):
-                if psf_path:
-                    self._log("PSF saved: psf_rgb.fit")
-                    psf_stats = analyze_psf(Path(psf_path))
-                    if psf_stats:
-                        for line in format_psf_stats(psf_stats):
-                            self._log(f"  {line}")
-                if self.siril.rl(
-                    iters=cfg.deconv_iterations,
-                    regularization=cfg.deconv_regularization,
-                    alpha=cfg.deconv_alpha,
-                ):
-                    deconv_path = self.output_dir / "rgb_deconv.fit"
-                    self.siril.save(str(deconv_path))
-                    stretch_source = str(deconv_path)
-                    self._log(f"Saved deconvolved: {deconv_path.name}")
-                else:
-                    self._log("RGB deconvolution failed, using original")
-            else:
-                self._log("RGB PSF creation failed, skipping deconvolution")
-
-        # Auto-stretch
-        auto_paths = self._auto_stretch(stretch_source, "rgb_auto")
-
-        return CompositionResult(
-            linear_path=linear_path,
-            linear_pcc_path=linear_pcc_path,
-            auto_fit=auto_paths["fit"],
-            auto_tif=auto_paths["tif"],
-            auto_jpg=auto_paths["jpg"],
+        """Compose RGB image (no luminance channel)."""
+        return compose_rgb(
+            siril=self.siril,
+            stacks=stacks,
             stacks_dir=self.stacks_dir,
+            output_dir=self.output_dir,
+            config=self.config,
+            stretch_pipeline=self._stretch_pipeline,
+            log_fn=self._log,
+            log_step_fn=self._log_step,
+            log_color_balance_fn=self._log_color_balance,
         )
 
     def compose_narrowband(
@@ -451,346 +120,19 @@ class Composer:
         stacks: dict[str, list[StackInfo]],
         palette: str = "HOO",
     ) -> CompositionResult:
-        """
-        Compose narrowband image using palette mapping.
-
-        Palettes:
-        - HOO: H->R, O->G, O->B
-        - SHO: S->R, H->G, O->B
-        """
-        self._log_step(f"Composing narrowband ({palette})")
-
-        if palette not in PALETTES:
-            raise ValueError(
-                f"Unknown palette: {palette}. Available: {list(PALETTES.keys())}"
-            )
-
-        mapping = PALETTES[palette]
-        required = set(mapping.values())
-
-        for ch in required:
-            if ch not in stacks:
-                raise ValueError(f"Missing required channel: {ch}")
-            if len(stacks[ch]) != 1:
-                raise ValueError(
-                    f"Expected single exposure for {ch}, got {len(stacks[ch])}"
-                )
-
-        self.siril.cd(str(self.stacks_dir))
-
-        # Register stacks
-        self._log("Cross-registering stacks...")
-        self.siril.convert("stack", out="./registered")
-        self.siril.cd(str(self.stacks_dir / "registered"))
-        self.siril.register("stack", twopass=True)
-        self.siril.seqapplyreg("stack", framing="min")
-
-        # For HOO: H=00001, O=00002
-        # For SHO: H=00001, O=00002, S=00003
-        # Determine numbering based on what channels exist
-        channels_sorted = sorted(stacks.keys())
-        channel_to_num = {ch: f"{i + 1:05d}" for i, ch in enumerate(channels_sorted)}
-
-        # Note: No linear matching for narrowband
-        # Linear matching destroys the relative intensities between channels
-        # which are needed for proper palette mapping. Each narrowband filter
-        # captures different emission lines with different intrinsic brightness.
-        self._log("Saving registered channels (no linear match for narrowband)...")
-        for ch in required:
-            self.siril.load(f"r_stack_{channel_to_num[ch]}")
-            self.siril.save(ch)
-
-        # Map channels according to palette
-        self._log(f"Applying {palette} palette...")
-        r_src = mapping["R"]
-        g_src = mapping["G"]
-        b_src = mapping["B"]
-
-        self.siril.rgbcomp(r=r_src, g=g_src, b=b_src, out="narrowband")
-
-        # Save linear result
-        type_name = palette.lower()
-        linear_path = self.output_dir / f"{type_name}_linear.fit"
-        self.siril.load("narrowband")
-        self.siril.save(str(linear_path))
-        self._log(f"Saved linear: {linear_path.name}")
-        self._log_color_balance(linear_path)
-
-        # Note: PCC not applicable for narrowband - uses synthetic colors
-        linear_pcc_path = None
-
-        # Color cast removal - especially useful for narrowband
-        cfg = self.config
-        stretch_source = str(self.stacks_dir / "registered" / "narrowband")
-        if cfg.color_removal_mode != "none":
-            self.siril.load("narrowband")
-            if self._apply_color_removal():
-                self.siril.save(str(linear_path))
-                stretch_source = str(linear_path)
-            else:
-                self._log("Color removal failed, continuing without")
-
-        # Optional deconvolution on narrowband composite
-        if cfg.deconv_enabled:
-            self._log("Deconvolving narrowband composite...")
-            self.siril.load("narrowband")
-            psf_path = (
-                str(self.output_dir / f"psf_{type_name}.fit")
-                if cfg.deconv_save_psf
-                else None
-            )
-            if self.siril.makepsf(
-                method=cfg.deconv_psf_method,
-                symmetric=True,
-                save_psf=psf_path,
-            ):
-                if psf_path:
-                    self._log(f"PSF saved: psf_{type_name}.fit")
-                    psf_stats = analyze_psf(Path(psf_path))
-                    if psf_stats:
-                        for line in format_psf_stats(psf_stats):
-                            self._log(f"  {line}")
-                if self.siril.rl(
-                    iters=cfg.deconv_iterations,
-                    regularization=cfg.deconv_regularization,
-                    alpha=cfg.deconv_alpha,
-                ):
-                    deconv_path = self.output_dir / f"{type_name}_deconv.fit"
-                    self.siril.save(str(deconv_path))
-                    stretch_source = str(deconv_path)
-                    self._log(f"Saved deconvolved: {deconv_path.name}")
-                else:
-                    self._log("Narrowband deconvolution failed, using original")
-            else:
-                self._log("PSF creation failed, skipping deconvolution")
-
-        # Auto-stretch
-        auto_paths = self._auto_stretch(stretch_source, f"{type_name}_auto")
-
-        return CompositionResult(
-            linear_path=linear_path,
-            linear_pcc_path=linear_pcc_path,
-            auto_fit=auto_paths["fit"],
-            auto_tif=auto_paths["tif"],
-            auto_jpg=auto_paths["jpg"],
+        """Compose narrowband image using palette mapping."""
+        return compose_narrowband(
+            siril=self.siril,
+            stacks=stacks,
             stacks_dir=self.stacks_dir,
+            output_dir=self.output_dir,
+            config=self.config,
+            stretch_pipeline=self._stretch_pipeline,
+            palette=palette,
+            log_fn=self._log,
+            log_step_fn=self._log_step,
+            log_color_balance_fn=self._log_color_balance,
         )
-
-    def _apply_stretch(self, method: str, source_path: str | None = None) -> None:
-        """
-        Apply a single stretch method to currently loaded image.
-
-        Args:
-            method: Stretch method name
-            source_path: Path to source image (for veralux stats calculation)
-        """
-        cfg = self.config
-
-        if method == "autostretch":
-            mode = "linked" if cfg.autostretch_linked else "unlinked"
-            self._log(
-                f"Stretching (autostretch, {mode}, targetbg={cfg.autostretch_targetbg})..."
-            )
-            self.siril.autostretch(
-                linked=cfg.autostretch_linked,
-                shadowclip=cfg.autostretch_shadowclip,
-                targetbg=cfg.autostretch_targetbg,
-            )
-        elif method == "veralux":
-            if not source_path:
-                raise ValueError("veralux stretch requires source_path")
-            self._log(
-                f"Stretching (veralux, target_median={cfg.veralux_target_median}, "
-                f"b={cfg.veralux_b})..."
-            )
-            success, log_d = veralux_stretch.apply_stretch(
-                siril=self.siril,
-                image_path=Path(source_path),
-                config=cfg,
-                log_fn=self._log,
-            )
-            if not success:
-                raise RuntimeError("VeraLux stretch failed")
-        else:
-            raise ValueError(f"Unknown stretch method: {method}")
-
-    def _apply_enhancements(self, image_path: Path) -> None:
-        """
-        Apply VeraLux enhancement pipeline to a stretched image.
-
-        Order: Silentium (denoise) -> Revela (detail) -> Vectra (saturation)
-        """
-        cfg = self.config
-
-        # 1. Noise reduction (optional, on stretched image)
-        if cfg.veralux_silentium_enabled:
-            self._log("Applying VeraLux Silentium (noise reduction)...")
-            success, stats = veralux_silentium.apply_silentium(
-                self.siril, image_path, cfg, self._log
-            )
-            if not success:
-                self._log("Silentium failed, continuing...")
-
-        # 2. Detail enhancement
-        if cfg.veralux_revela_enabled:
-            self._log("Applying VeraLux Revela (detail enhancement)...")
-            success, stats = veralux_revela.apply_revela(
-                self.siril, image_path, cfg, self._log
-            )
-            if not success:
-                self._log("Revela failed, continuing...")
-
-        # 3. Smart saturation (replaces basic satu command if enabled)
-        if cfg.veralux_vectra_enabled:
-            self._log("Applying VeraLux Vectra (smart saturation)...")
-            success, stats = veralux_vectra.apply_vectra(
-                self.siril, image_path, cfg, self._log
-            )
-            if not success:
-                self._log("Vectra failed, continuing...")
-
-    def _apply_star_processing(self, image_path: Path) -> Path:
-        """
-        Apply star removal and optional recomposition.
-
-        If starnet_enabled: runs StarNet to create starless + starmask
-        If starcomposer_enabled: recomposes with controlled star intensity
-
-        Args:
-            image_path: Path to the image to process
-
-        Returns:
-            Path to final image (starless, composed, or original if disabled)
-        """
-        cfg = self.config
-
-        if not cfg.starnet_enabled:
-            return image_path
-
-        self._log("Running StarNet for star removal...")
-
-        # Load image and run starnet
-        # StarNet modifies loaded image to starless and creates *_starmask.fit
-        if not self.siril.load(str(image_path)):
-            self._log("Failed to load image for StarNet")
-            return image_path
-
-        if not self.siril.starnet():
-            self._log("StarNet failed, continuing with original image")
-            return image_path
-
-        # Save starless image
-        starless_path = image_path.parent / f"{image_path.stem}_starless.fit"
-        self.siril.save(str(starless_path.with_suffix("")))
-        self._log(f"Saved starless: {starless_path.name}")
-
-        # StarNet creates starmask with this naming convention
-        starmask_path = image_path.parent / f"{image_path.stem}_starmask.fit"
-
-        if not starmask_path.exists():
-            self._log(f"Warning: Star mask not found at {starmask_path.name}")
-            return starless_path
-
-        self._log(f"Star mask saved: {starmask_path.name}")
-
-        # If starcomposer enabled, recompose with controlled star intensity
-        if cfg.veralux_starcomposer_enabled:
-            self._log("Applying StarComposer for star recomposition...")
-            success, composed_path = veralux_starcomposer.apply_starcomposer(
-                siril=self.siril,
-                starless_path=starless_path,
-                starmask_path=starmask_path,
-                config=cfg,
-                log_fn=self._log,
-            )
-            if success:
-                self._log(f"Saved composed: {composed_path.name}")
-                return composed_path
-            else:
-                self._log("StarComposer failed, using starless image")
-                return starless_path
-
-        # Return starless if no recomposition
-        return starless_path
-
-    def _save_stretched(self, output_name: str) -> dict[str, Path]:
-        """Save currently loaded (stretched) image in multiple formats."""
-        cfg = self.config
-        # Only apply basic satu if Vectra is not enabled
-        if not cfg.veralux_vectra_enabled:
-            self.siril.satu(cfg.saturation_amount, cfg.saturation_background_factor)
-        self.siril.cd(str(self.output_dir))
-
-        fit_path = self.output_dir / f"{output_name}.fit"
-        tif_path = self.output_dir / f"{output_name}.tif"
-        jpg_path = self.output_dir / f"{output_name}.jpg"
-
-        # Save initial stretched FIT
-        self.siril.save(str(self.output_dir / output_name))
-
-        # Apply VeraLux enhancements if any are enabled
-        has_enhancements = (
-            cfg.veralux_silentium_enabled
-            or cfg.veralux_revela_enabled
-            or cfg.veralux_vectra_enabled
-        )
-        if has_enhancements:
-            self._apply_enhancements(fit_path)
-            # Re-save after enhancements
-            self.siril.save(str(self.output_dir / output_name))
-
-        # Apply star processing (starnet + optional starcomposer)
-        final_fit_path = self._apply_star_processing(fit_path)
-
-        # Determine which file to use for TIF/JPG export
-        # If star processing produced a new file, use that
-        if final_fit_path != fit_path:
-            self.siril.load(str(final_fit_path))
-            # Update paths to reflect the final output
-            fit_path = final_fit_path
-            tif_path = final_fit_path.with_suffix(".tif")
-            jpg_path = final_fit_path.with_suffix(".jpg")
-
-        # Save final formats
-        self.siril.savetif(str(fit_path.with_suffix("")), astro=True, deflate=True)
-        self.siril.savejpg(str(fit_path.with_suffix("")), 90)
-
-        self._log(f"Saved: {fit_path.name}, {tif_path.name}, {jpg_path.name}")
-        return {"fit": fit_path, "tif": tif_path, "jpg": jpg_path}
-
-    def _auto_stretch(self, input_name: str, output_name: str) -> dict[str, Path]:
-        """
-        Apply stretch and saturation, save in multiple formats.
-
-        If stretch_compare is enabled, applies all methods and saves each.
-
-        Args:
-            input_name: Path to linear image (absolute or relative to current dir)
-            output_name: Base name for output files
-        """
-        cfg = self.config
-
-        if cfg.stretch_compare:
-            # Compare mode: apply both stretch methods
-            methods = ["autostretch", "veralux"]
-            self._log("Comparing stretch methods (autostretch vs veralux)...")
-            primary_paths = None
-
-            for method in methods:
-                self.siril.load(input_name)
-                self._apply_stretch(method, source_path=input_name)
-                suffix = f"{output_name}_{method}"
-                paths = self._save_stretched(suffix)
-                # Use first method as primary return
-                if primary_paths is None:
-                    primary_paths = paths
-
-            return primary_paths
-        else:
-            # Single method mode
-            self.siril.load(input_name)
-            self._apply_stretch(cfg.stretch_method, source_path=input_name)
-            return self._save_stretched(output_name)
 
 
 def compose_and_stretch(

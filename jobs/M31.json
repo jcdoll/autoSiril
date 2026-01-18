@@ -33,6 +33,11 @@
     "dark_temp_override": -10,
     "deconv_enabled": true,
     "color_removal_mode": "none",
-    "spcc_enabled": false
+    "spcc_enabled": false,
+    "veralux_silentium_enabled": true,
+    "veralux_revela_enabled": true,
+    "veralux_vectra_enabled": true,
+    "starnet_enabled": true,
+    "veralux_starcomposer_enabled": true
   }
 }
