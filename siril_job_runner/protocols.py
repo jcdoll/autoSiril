@@ -44,6 +44,7 @@ class SirilInterface(Protocol):
 
     # Registration
     def register(self, name: str, twopass: bool = False) -> bool: ...
+    def setref(self, name: str, index: int) -> bool: ...
     def seqapplyreg(
         self,
         name: str,

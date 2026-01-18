@@ -17,6 +17,7 @@ from .models import FrameInfo, StackGroup
 from .protocols import SirilInterface
 from .sequence_analysis import (
     compute_adaptive_threshold,
+    find_valid_reference,
     format_stats_log,
     parse_sequence_file,
 )
@@ -113,6 +114,9 @@ class Preprocessor:
         Parses the .seq file after registration and uses GMM + dip test
         to detect bimodality and compute appropriate threshold.
 
+        Also checks if the reference image would be filtered out and
+        sets a new reference if needed.
+
         Returns:
             FWHM threshold in pixels, or None if no filtering needed
         """
@@ -128,6 +132,17 @@ class Preprocessor:
         # Log the analysis
         for line in format_stats_log(stats):
             self._log_detail(line)
+
+        # Check if reference image would be filtered out
+        if stats.threshold is not None:
+            new_ref = find_valid_reference(stats)
+            if new_ref is not None:
+                self._log(
+                    f"Reference image (wFWHM={stats.reference_wfwhm:.2f}px) "
+                    f"exceeds threshold, switching to image {new_ref}"
+                )
+                if not self.siril.setref(seq_name, new_ref):
+                    self._log("Warning: Failed to set new reference image")
 
         return stats.threshold
 

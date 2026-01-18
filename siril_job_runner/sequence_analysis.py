@@ -18,6 +18,7 @@ Adaptive Filtering Decision Tree:
        -> Keep all images, no filtering needed.
 """
 
+import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -38,6 +39,12 @@ class RegistrationStats:
     fwhm_values: np.ndarray
     wfwhm_values: np.ndarray
     roundness_values: np.ndarray
+    metric_values: np.ndarray  # Registration quality score (higher = better)
+    image_indices: np.ndarray  # 1-based indices matching wfwhm_values
+
+    # Reference image info
+    reference_index: int  # 1-based index of current reference
+    reference_wfwhm: float  # wFWHM of reference image (0 if not in data)
 
     # Basic statistics
     median: float
@@ -72,8 +79,9 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
     """
     Parse a Siril .seq file and extract registration data.
 
-    The .seq file contains R0 lines with format:
-    R0 FWHM wFWHM roundness quality metric n_stars transform_type ...
+    The .seq file contains:
+    - S line: 'name' start nb_images nb_selected fixed_len reference_image version
+    - R0 lines: FWHM wFWHM roundness quality metric n_stars transform_type ...
 
     Args:
         seq_path: Path to .seq file
@@ -87,22 +95,41 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
     fwhm_list = []
     wfwhm_list = []
     roundness_list = []
+    metric_list = []
+    index_list = []
+    reference_index = -1
+    current_image_index = 0
 
     with open(seq_path) as f:
         for line in f:
-            if line.startswith("R0 "):
+            # Parse S line for reference index
+            # Format: S 'name' start nb_images nb_selected fixed_len reference_image version
+            if line.startswith("S "):
                 parts = line.split()
-                if len(parts) >= 4:
+                if len(parts) >= 7:
+                    with contextlib.suppress(ValueError, IndexError):
+                        # reference_image is 1-based, -1 means auto
+                        reference_index = int(parts[6])
+
+            # Parse R0 lines for FWHM data
+            # Format: R0 FWHM wFWHM roundness quality metric n_stars ...
+            if line.startswith("R0 "):
+                current_image_index += 1
+                parts = line.split()
+                if len(parts) >= 6:
                     try:
                         fwhm = float(parts[1])
                         wfwhm = float(parts[2])
                         roundness = float(parts[3])
+                        metric = float(parts[5])
 
                         # Skip reference image (has 0 0 nan) and invalid entries
                         if fwhm > 0 and not np.isnan(roundness):
                             fwhm_list.append(fwhm)
                             wfwhm_list.append(wfwhm)
                             roundness_list.append(roundness)
+                            metric_list.append(metric)
+                            index_list.append(current_image_index)
                     except (ValueError, IndexError):
                         continue
 
@@ -112,6 +139,15 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
     fwhm = np.array(fwhm_list)
     wfwhm = np.array(wfwhm_list)
     roundness = np.array(roundness_list)
+    metric = np.array(metric_list)
+    indices = np.array(index_list)
+
+    # Find reference wFWHM (0 if reference not in parsed data, e.g. if it was skipped)
+    ref_wfwhm = 0.0
+    if reference_index > 0:
+        ref_mask = indices == reference_index
+        if np.any(ref_mask):
+            ref_wfwhm = float(wfwhm[ref_mask][0])
 
     # Use wFWHM for all analysis since Siril's seqapplyreg filters by wFWHM
     # Compute histogram bins (1px wide, from floor to ceil)
@@ -124,6 +160,10 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
         fwhm_values=fwhm,
         wfwhm_values=wfwhm,
         roundness_values=roundness,
+        metric_values=metric,
+        image_indices=indices,
+        reference_index=reference_index,
+        reference_wfwhm=ref_wfwhm,
         median=float(np.median(wfwhm)),
         mean=float(np.mean(wfwhm)),
         std=float(np.std(wfwhm)),
@@ -361,6 +401,16 @@ def format_stats_log(stats: RegistrationStats) -> list[str]:
         f"std={stats.std:.2f}, CV={stats.cv:.1%}, skew={stats.skewness:.2f}"
     )
 
+    # Registration quality metrics
+    metric_min = np.min(stats.metric_values)
+    metric_max = np.max(stats.metric_values)
+    metric_median = np.median(stats.metric_values)
+    low_metric_count = np.sum(stats.metric_values < 500)
+    lines.append(
+        f"Metric: min={metric_min:.0f}, median={metric_median:.0f}, "
+        f"max={metric_max:.0f}, low(<500)={low_metric_count}"
+    )
+
     # Bimodality test results (if we have enough images)
     if stats.n_images >= 10:
         bimodal_str = "BIMODAL" if stats.is_bimodal else "unimodal"
@@ -400,3 +450,36 @@ def format_stats_log(stats: RegistrationStats) -> list[str]:
         )
 
     return lines
+
+
+def find_valid_reference(stats: RegistrationStats) -> Optional[int]:
+    """
+    Find the best reference image that passes the threshold filter.
+
+    If the current reference would be filtered out, returns the index of
+    the image with the lowest wFWHM that passes the threshold.
+
+    Args:
+        stats: RegistrationStats with threshold computed
+
+    Returns:
+        1-based image index for new reference, or None if no change needed
+    """
+    if stats.threshold is None:
+        return None
+
+    # Check if current reference passes the filter
+    if stats.reference_wfwhm > 0 and stats.reference_wfwhm <= stats.threshold:
+        return None
+
+    # Find images that pass the filter
+    passing_mask = stats.wfwhm_values <= stats.threshold
+    if not np.any(passing_mask):
+        return None
+
+    # Pick the one with lowest wFWHM (best quality)
+    passing_wfwhm = stats.wfwhm_values[passing_mask]
+    passing_indices = stats.image_indices[passing_mask]
+    best_idx = np.argmin(passing_wfwhm)
+
+    return int(passing_indices[best_idx])

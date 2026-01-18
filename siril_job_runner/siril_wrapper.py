@@ -5,7 +5,11 @@ pysiril uses Execute() for all commands. This wrapper provides
 typed methods that build command strings internally.
 """
 
+from pathlib import Path
 from typing import Optional
+
+import numpy as np
+from astropy.io import fits
 
 
 class SirilWrapper:
@@ -122,6 +126,10 @@ class SirilWrapper:
         if twopass:
             cmd += " -2pass"
         return self.execute(cmd)
+
+    def setref(self, name: str, index: int) -> bool:
+        """Set reference image for a sequence (1-based index)."""
+        return self.execute(f"setref {name} {index}")
 
     def seqapplyreg(
         self,
@@ -269,6 +277,18 @@ class SirilWrapper:
     def mtf(self, low: float, mid: float, high: float) -> bool:
         """Midtone transfer function."""
         return self.execute(f"mtf {low} {mid} {high}")
+
+    def linstretch(self, bp: float) -> bool:
+        """
+        Linear stretch to set black point.
+
+        Stretches the image linearly so that bp becomes the new black point.
+        Applies to all channels by default (preserves color).
+
+        Args:
+            bp: Black point value (0-1) - pixels at this value become 0
+        """
+        return self.execute(f"linstretch -BP={bp}")
 
     def modasinh(
         self,
@@ -474,6 +494,45 @@ class SirilWrapper:
         if stretch:
             cmd += " -stretch"
         return self.execute(cmd)
+
+    # Statistics
+
+    def get_image_stats(self, filepath: Path) -> dict[str, float]:
+        """
+        Get image statistics from a FITS file using astropy.
+
+        Args:
+            filepath: Path to FITS file
+
+        Returns:
+            Dict with median, mean, std, min, max for the image.
+            For RGB images, returns stats for combined luminance.
+        """
+        with fits.open(filepath) as hdul:
+            data = hdul[0].data.astype(np.float64)
+
+        # Handle different data layouts
+        if data.ndim == 3:
+            # RGB image - compute luminance (simple average)
+            if data.shape[0] == 3:
+                # (3, H, W) format
+                luminance = np.mean(data, axis=0)
+            else:
+                # (H, W, 3) format
+                luminance = np.mean(data, axis=2)
+            data = luminance
+
+        # Normalize to 0-1 if needed (16-bit data)
+        if data.max() > 1.5:
+            data = data / 65535.0
+
+        return {
+            "median": float(np.median(data)),
+            "mean": float(np.mean(data)),
+            "std": float(np.std(data)),
+            "min": float(np.min(data)),
+            "max": float(np.max(data)),
+        }
 
     # Pixel math
 

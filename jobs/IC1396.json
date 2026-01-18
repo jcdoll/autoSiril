@@ -1,0 +1,28 @@
+{
+  "name": "IC1396_Fall2024",
+  "type": "SHO",
+  "calibration": {
+    "bias": "2024_08_10",
+    "darks": "2025_01_23",
+    "flats": "2025_01_19"
+  },
+  "lights": {
+    "S": [
+      "IC1396/2024_09_24/S300"
+    ],
+    "H": [
+      "IC1396/2024_09_24/H300"
+    ],
+    "O": [
+      "IC1396/2024_09_24/O300"
+    ],
+    "L": [
+      "IC1396/2024_09_24/L300"
+    ]
+  },
+  "output": "IC1396/processed",
+  "options": {
+    "dark_temp_override": -10,
+    "palette": "SHO"
+  }
+}
