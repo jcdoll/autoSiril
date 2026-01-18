@@ -113,23 +113,30 @@ class StretchPipeline:
             if not success:
                 self._log("Vectra failed, continuing...")
 
-    def apply_star_processing(self, image_path: Path) -> Path:
+    def apply_star_processing(self, image_path: Path) -> dict[str, Optional[Path]]:
         """
         Apply star removal and optional recomposition.
 
-        If starnet_enabled: runs StarNet to create starless + starmask
+        If starnet_enabled: runs StarNet to create starless + stars
         If starcomposer_enabled: recomposes with controlled star intensity
 
         Args:
-            image_path: Path to the image to process
+            image_path: Path to the image to process (the "full" image)
 
         Returns:
-            Path to final image (starless, composed, or original if disabled)
+            Dict with paths: {full, starless, stars, starcomposer}
+            Values are None if that output was not created.
         """
         cfg = self.config
+        result = {
+            "full": image_path,
+            "starless": None,
+            "stars": None,
+            "starcomposer": None,
+        }
 
         if not cfg.starnet_enabled:
-            return image_path
+            return result
 
         self._log("Running StarNet for star removal...")
 
@@ -137,45 +144,65 @@ class StretchPipeline:
         # StarNet modifies loaded image to starless and creates *_starmask.fit
         if not self.siril.load(str(image_path)):
             self._log("Failed to load image for StarNet")
-            return image_path
+            return result
 
         if not self.siril.starnet():
             self._log("StarNet failed, continuing with original image")
-            return image_path
+            return result
 
         # Save starless image
         starless_path = image_path.parent / f"{image_path.stem}_starless.fit"
         self.siril.save(str(starless_path.with_suffix("")))
         self._log(f"Saved starless: {starless_path.name}")
+        result["starless"] = starless_path
 
-        # StarNet creates starmask with this naming convention
-        starmask_path = image_path.parent / f"{image_path.stem}_starmask.fit"
+        # StarNet creates starmask - rename to _stars for clarity
+        starmask_path = image_path.parent / f"starmask_{image_path.stem}.fit"
+        stars_path = image_path.parent / f"{image_path.stem}_stars.fit"
 
-        if not starmask_path.exists():
+        if starmask_path.exists():
+            if stars_path.exists():
+                stars_path.unlink()
+            starmask_path.rename(stars_path)
+            self._log(f"Saved stars: {stars_path.name}")
+            result["stars"] = stars_path
+        else:
             self._log(f"Warning: Star mask not found at {starmask_path.name}")
-            return starless_path
-
-        self._log(f"Star mask saved: {starmask_path.name}")
 
         # If starcomposer enabled, recompose with controlled star intensity
-        if cfg.veralux_starcomposer_enabled:
+        if cfg.veralux_starcomposer_enabled and result["stars"]:
             self._log("Applying StarComposer for star recomposition...")
             success, composed_path = veralux_starcomposer.apply_starcomposer(
                 siril=self.siril,
                 starless_path=starless_path,
-                starmask_path=starmask_path,
+                starmask_path=result["stars"],
                 config=cfg,
                 log_fn=self._log,
             )
             if success:
-                self._log(f"Saved composed: {composed_path.name}")
-                return composed_path
+                # Rename to _starcomposer suffix
+                starcomposer_path = (
+                    image_path.parent / f"{image_path.stem}_starcomposer.fit"
+                )
+                if starcomposer_path.exists():
+                    starcomposer_path.unlink()
+                composed_path.rename(starcomposer_path)
+                self._log(f"Saved starcomposer: {starcomposer_path.name}")
+                result["starcomposer"] = starcomposer_path
             else:
-                self._log("StarComposer failed, using starless image")
-                return starless_path
+                self._log("StarComposer failed")
 
-        # Return starless if no recomposition
-        return starless_path
+        return result
+
+    def _save_all_formats(self, fit_path: Path) -> dict[str, Path]:
+        """Save a FIT file in all formats (FIT already saved, add TIF/JPG)."""
+        self.siril.load(str(fit_path))
+        self.siril.savetif(str(fit_path.with_suffix("")), astro=True, deflate=True)
+        self.siril.savejpg(str(fit_path.with_suffix("")), 90)
+        tif_path = fit_path.with_suffix(".tif")
+        jpg_path = fit_path.with_suffix(".jpg")
+        self._log(f"Saved: {fit_path.name}, {tif_path.name}, {jpg_path.name}")
+        return {"fit": fit_path, "tif": tif_path, "jpg": jpg_path}
 
     def save_stretched(self, output_name: str) -> dict[str, Path]:
         """Save currently loaded (stretched) image in multiple formats."""
@@ -186,8 +213,6 @@ class StretchPipeline:
         self.siril.cd(str(self.output_dir))
 
         fit_path = self.output_dir / f"{output_name}.fit"
-        tif_path = self.output_dir / f"{output_name}.tif"
-        jpg_path = self.output_dir / f"{output_name}.jpg"
 
         # Save initial stretched FIT
         self.siril.save(str(self.output_dir / output_name))
@@ -204,23 +229,26 @@ class StretchPipeline:
             self.siril.save(str(self.output_dir / output_name))
 
         # Apply star processing (starnet + optional starcomposer)
-        final_fit_path = self.apply_star_processing(fit_path)
+        star_results = self.apply_star_processing(fit_path)
 
-        # Determine which file to use for TIF/JPG export
-        # If star processing produced a new file, use that
-        if final_fit_path != fit_path:
-            self.siril.load(str(final_fit_path))
-            # Update paths to reflect the final output
-            fit_path = final_fit_path
-            tif_path = final_fit_path.with_suffix(".tif")
-            jpg_path = final_fit_path.with_suffix(".jpg")
+        # Save all outputs in all formats
+        # Full image (no star processing) - always exists
+        full_paths = self._save_all_formats(star_results["full"])
 
-        # Save final formats
-        self.siril.savetif(str(fit_path.with_suffix("")), astro=True, deflate=True)
-        self.siril.savejpg(str(fit_path.with_suffix("")), 90)
+        # Starless - if star processing was applied
+        if star_results["starless"]:
+            self._save_all_formats(star_results["starless"])
 
-        self._log(f"Saved: {fit_path.name}, {tif_path.name}, {jpg_path.name}")
-        return {"fit": fit_path, "tif": tif_path, "jpg": jpg_path}
+        # Stars - if star processing was applied
+        if star_results["stars"]:
+            self._save_all_formats(star_results["stars"])
+
+        # Starcomposer - if starcomposer was applied
+        if star_results["starcomposer"]:
+            self._save_all_formats(star_results["starcomposer"])
+
+        # Return paths for the "full" image as the primary output
+        return full_paths
 
     def auto_stretch(self, input_name: str, output_name: str) -> dict[str, Path]:
         """

@@ -34,7 +34,9 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
     fwhm_list = []
     wfwhm_list = []
     roundness_list = []
-    metric_list = []
+    quality_list = []
+    background_list = []
+    star_count_list = []
     index_list = []
     reference_index = -1
     current_image_index = 0
@@ -50,24 +52,29 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
                         # reference_image is 1-based, -1 means auto
                         reference_index = int(parts[6])
 
-            # Parse R0 lines for FWHM data
-            # Format: R0 FWHM wFWHM roundness quality metric n_stars ...
+            # Parse R0 lines for registration data
+            # Format: R0 FWHM wFWHM roundness quality background n_stars H ...
+            # See Siril src/io/seqfile.c writeseqfile() for format
             if line.startswith("R0 "):
                 current_image_index += 1
                 parts = line.split()
-                if len(parts) >= 6:
+                if len(parts) >= 7:
                     try:
                         fwhm = float(parts[1])
                         wfwhm = float(parts[2])
                         roundness = float(parts[3])
-                        metric = float(parts[5])
+                        quality = float(parts[4])
+                        background = float(parts[5])
+                        star_count = int(parts[6])
 
                         # Skip reference image (has 0 0 nan) and invalid entries
                         if fwhm > 0 and not np.isnan(roundness):
                             fwhm_list.append(fwhm)
                             wfwhm_list.append(wfwhm)
                             roundness_list.append(roundness)
-                            metric_list.append(metric)
+                            quality_list.append(quality)
+                            background_list.append(background)
+                            star_count_list.append(star_count)
                             index_list.append(current_image_index)
                     except (ValueError, IndexError):
                         continue
@@ -78,7 +85,9 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
     fwhm = np.array(fwhm_list)
     wfwhm = np.array(wfwhm_list)
     roundness = np.array(roundness_list)
-    metric = np.array(metric_list)
+    quality = np.array(quality_list)
+    background = np.array(background_list)
+    star_count = np.array(star_count_list)
     indices = np.array(index_list)
 
     # Find reference wFWHM (0 if reference not in parsed data, e.g. if it was skipped)
@@ -99,7 +108,9 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
         fwhm_values=fwhm,
         wfwhm_values=wfwhm,
         roundness_values=roundness,
-        metric_values=metric,
+        quality_values=quality,
+        background_values=background,
+        star_count_values=star_count,
         image_indices=indices,
         reference_index=reference_index,
         reference_wfwhm=ref_wfwhm,

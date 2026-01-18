@@ -98,21 +98,55 @@ def format_stats_log(stats: RegistrationStats) -> list[str]:
     lines.extend(format_histogram(stats))
     lines.append("")  # blank line
 
-    # Basic statistics
-    lines.append(
-        f"Stats: N={stats.n_images}, median={stats.median:.2f}px, "
-        f"std={stats.std:.2f}, CV={stats.cv:.1%}, skew={stats.skewness:.2f}"
-    )
+    # Per-image table
+    lines.append("  Img   FWHM  wFWHM  Round  Quality    BgLvl  Stars")
+    for i in range(stats.n_images):
+        img_idx = stats.image_indices[i]
+        fwhm = stats.fwhm_values[i]
+        wfwhm = stats.wfwhm_values[i]
+        roundness = stats.roundness_values[i]
+        quality = stats.quality_values[i]
+        background = stats.background_values[i]
+        stars = stats.star_count_values[i]
+        lines.append(
+            f"  {img_idx:3.0f}  {fwhm:5.2f}  {wfwhm:5.2f}  {roundness:5.2f}  "
+            f"{quality:7.0f}  {background:7.0f}  {stars:5.0f}"
+        )
+    lines.append("")
 
-    # Registration quality metrics
-    metric_min = np.min(stats.metric_values)
-    metric_max = np.max(stats.metric_values)
-    metric_median = np.median(stats.metric_values)
-    low_metric_count = np.sum(stats.metric_values < 500)
+    # Stats summary for each field
+    lines.append("Registration stats summary:")
     lines.append(
-        f"Metric: min={metric_min:.0f}, median={metric_median:.0f}, "
-        f"max={metric_max:.0f}, low(<500)={low_metric_count}"
+        f"  FWHM:    min={np.min(stats.fwhm_values):.2f}, "
+        f"med={np.median(stats.fwhm_values):.2f}, "
+        f"max={np.max(stats.fwhm_values):.2f}"
     )
+    lines.append(
+        f"  wFWHM:   min={np.min(stats.wfwhm_values):.2f}, "
+        f"med={np.median(stats.wfwhm_values):.2f}, "
+        f"max={np.max(stats.wfwhm_values):.2f}"
+    )
+    lines.append(
+        f"  Round:   min={np.min(stats.roundness_values):.2f}, "
+        f"med={np.median(stats.roundness_values):.2f}, "
+        f"max={np.max(stats.roundness_values):.2f}"
+    )
+    lines.append(
+        f"  Quality: min={np.min(stats.quality_values):.0f}, "
+        f"med={np.median(stats.quality_values):.0f}, "
+        f"max={np.max(stats.quality_values):.0f}"
+    )
+    lines.append(
+        f"  BgLvl:   min={np.min(stats.background_values):.0f}, "
+        f"med={np.median(stats.background_values):.0f}, "
+        f"max={np.max(stats.background_values):.0f}"
+    )
+    lines.append(
+        f"  Stars:   min={np.min(stats.star_count_values):.0f}, "
+        f"med={np.median(stats.star_count_values):.0f}, "
+        f"max={np.max(stats.star_count_values):.0f}"
+    )
+    lines.append("")
 
     # Bimodality test results (if we have enough images)
     if stats.n_images >= 10:
@@ -123,7 +157,7 @@ def format_stats_log(stats: RegistrationStats) -> list[str]:
         )
 
     # GMM mode details if bimodal
-    if stats.is_bimodal and stats.gmm_means is not None:
+    if stats.is_bimodal and stats.gmm_means is not None and stats.gmm_weights is not None:
         sorted_idx = np.argsort(stats.gmm_means)
         mode_strs = [
             f"{stats.gmm_means[i]:.2f}px (w={stats.gmm_weights[i]:.2f})"

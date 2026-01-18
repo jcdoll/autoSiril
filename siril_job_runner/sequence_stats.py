@@ -18,7 +18,9 @@ class RegistrationStats:
     fwhm_values: np.ndarray
     wfwhm_values: np.ndarray
     roundness_values: np.ndarray
-    metric_values: np.ndarray  # Registration quality score (higher = better)
+    quality_values: np.ndarray  # Siril quality field (often 0/unused)
+    background_values: np.ndarray  # Background level in ADU
+    star_count_values: np.ndarray  # Number of matched stars per image
     image_indices: np.ndarray  # 1-based indices matching wfwhm_values
 
     # Reference image info

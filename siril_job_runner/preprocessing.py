@@ -15,6 +15,7 @@ from .models import FrameInfo, StackGroup
 from .preprocessing_pipeline import run_pipeline
 from .preprocessing_utils import group_frames_by_filter_exposure, link_or_copy
 from .protocols import SirilInterface
+from .sequence_analysis import format_stats_log, parse_sequence_file
 
 # Re-export for backwards compatibility
 __all__ = [
@@ -45,6 +46,22 @@ class Preprocessor:
     def _log_detail(self, message: str) -> None:
         if self.logger:
             self.logger.detail(message)
+
+    def _log_existing_seq_stats(self, process_dir: Path) -> None:
+        """Log stats from existing .seq file if present."""
+        seq_path = process_dir / "pp_light.seq"
+        if not seq_path.exists():
+            self._log_detail("No existing registration data found")
+            return
+
+        stats = parse_sequence_file(seq_path)
+        if stats is None:
+            self._log_detail("Could not parse existing sequence file")
+            return
+
+        self._log("Loading existing registration data:")
+        for line in format_stats_log(stats):
+            self._log_detail(line)
 
     def _clean_process_dir(self, process_dir: Path) -> None:
         """Remove old Siril output files from process directory, preserving source/."""
@@ -123,6 +140,12 @@ class Preprocessor:
                     f"({len(group.frames)} frames)"
                 )
             self._log(f"Stack is up-to-date: {stack_path.name}")
+            # Log existing registration stats from previous run
+            process_dir = (
+                output_dir / "process" / f"{group.filter_name}_{group.exposure_str}"
+            )
+            if process_dir.exists():
+                self._log_existing_seq_stats(process_dir)
             return stack_path
 
         if self.logger:

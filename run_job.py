@@ -7,6 +7,7 @@ Usage:
     python run_job.py jobs/M42_Jan2024.json --validate
     python run_job.py jobs/M42_Jan2024.json --dry-run
     python run_job.py jobs/M42_Jan2024.json --stage preprocess
+    python run_job.py jobs/M42_Jan2024.json --seq-stats
 """
 
 import argparse
@@ -42,8 +43,123 @@ class TeeWriter:
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from siril_job_runner.job_config import load_settings, validate_job_file
+from siril_job_runner.job_config import load_job, load_settings, validate_job_file
 from siril_job_runner.job_runner import JobRunner
+from siril_job_runner.sequence_analysis import (
+    compute_adaptive_threshold,
+    format_stats_log,
+    parse_sequence_file,
+)
+
+
+def print_seq_stats(job_path: Path, base_path: Path) -> None:
+    """
+    Print registration stats from existing .seq files for a job.
+
+    Discovers all process directories and prints stats from pp_light.seq files.
+    Shows a summary comparison table followed by detailed per-filter stats.
+    """
+    import numpy as np
+
+    config = load_job(job_path)
+    output_dir = base_path / config.output
+    process_dir = output_dir / "process"
+
+    if not process_dir.exists():
+        print(f"No process directory found at: {process_dir}")
+        print("Run the job first to generate registration data.")
+        return
+
+    # Find all filter directories
+    filter_dirs = sorted([d for d in process_dir.iterdir() if d.is_dir()])
+    if not filter_dirs:
+        print(f"No filter directories found in: {process_dir}")
+        return
+
+    # Collect all stats first
+    all_stats = []
+    for filter_dir in filter_dirs:
+        seq_path = filter_dir / "pp_light.seq"
+        if not seq_path.exists():
+            continue
+
+        stats = parse_sequence_file(seq_path)
+        if stats is None:
+            continue
+
+        stats = compute_adaptive_threshold(stats, config.config)
+        all_stats.append((filter_dir.name, stats))
+
+    if not all_stats:
+        print(f"No registration data found in: {process_dir}")
+        print("Run the job first to generate registration data.")
+        return
+
+    print(f"Registration stats for job: {config.name}")
+    print(f"Output directory: {output_dir}")
+    print("=" * 80)
+
+    # Print summary comparison table
+    print("\nSummary (min/med/max):")
+    header = (
+        f"|{'Filter':<10}|{'Frames':>7}|{'wFWHM (px)':<17}|{'FWHM (px)':<17}"
+        f"|{'Roundness':<15}|{'Stars':<15}|{'Threshold':<17}|"
+    )
+    sep = (
+        f"|{'-'*10}|{'-'*7}|{'-'*17}|{'-'*17}"
+        f"|{'-'*15}|{'-'*15}|{'-'*17}|"
+    )
+    print(sep)
+    print(header)
+    print(sep)
+
+    for name, stats in all_stats:
+        # Format min/med/max strings
+        wfwhm_str = (
+            f"{np.min(stats.wfwhm_values):.2f}/"
+            f"{np.median(stats.wfwhm_values):.2f}/"
+            f"{np.max(stats.wfwhm_values):.2f}"
+        )
+        fwhm_str = (
+            f"{np.min(stats.fwhm_values):.2f}/"
+            f"{np.median(stats.fwhm_values):.2f}/"
+            f"{np.max(stats.fwhm_values):.2f}"
+        )
+        round_str = (
+            f"{np.min(stats.roundness_values):.2f}/"
+            f"{np.median(stats.roundness_values):.2f}/"
+            f"{np.max(stats.roundness_values):.2f}"
+        )
+        stars_str = (
+            f"{int(np.min(stats.star_count_values))}/"
+            f"{int(np.median(stats.star_count_values))}/"
+            f"{int(np.max(stats.star_count_values))}"
+        )
+
+        # Format threshold
+        if stats.threshold is not None:
+            thresh_str = f"{stats.threshold:.2f} (-{stats.n_rejected})"
+        else:
+            thresh_str = "none"
+
+        row = (
+            f"|{name:<10}|{stats.n_images:>7}|{wfwhm_str:<17}|{fwhm_str:<17}"
+            f"|{round_str:<15}|{stars_str:<15}|{thresh_str:<17}|"
+        )
+        print(row)
+
+    print(sep)
+    print("\nValues shown as min/med/max. Threshold column shows wFWHM cutoff and frames rejected.")
+
+    # Print detailed per-filter stats
+    print("\n" + "=" * 80)
+    print("Detailed stats per filter:")
+
+    for name, stats in all_stats:
+        print(f"\n{name}:")
+        print("-" * 40)
+        for line in format_stats_log(stats):
+            print(f"  {line}")
 
 
 def get_siril_interface():
@@ -81,6 +197,7 @@ Examples:
     python run_job.py jobs/M42.json --validate   # Validate only
     python run_job.py jobs/M42.json --dry-run    # Show what would happen
     python run_job.py jobs/M42.json --stage calibrate
+    python run_job.py jobs/M42.json --seq-stats  # View registration stats
         """,
     )
 
@@ -127,6 +244,12 @@ Examples:
         help="Force reprocessing even if cached stacks exist",
     )
 
+    parser.add_argument(
+        "--seq-stats",
+        action="store_true",
+        help="Print registration stats from existing .seq files and exit",
+    )
+
     args = parser.parse_args()
 
     # Set up logging to file if requested
@@ -168,6 +291,11 @@ Examples:
             print("  1. Use --base-path argument")
             print("  2. Create settings.json with base_path (copy from settings.template.json)")
             sys.exit(1)
+
+    # Handle --seq-stats (no Siril needed)
+    if args.seq_stats:
+        print_seq_stats(args.job_file, base_path)
+        sys.exit(0)
 
     # Get Siril interface
     siril = None
