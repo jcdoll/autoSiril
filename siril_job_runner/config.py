@@ -121,14 +121,24 @@ class Config:
     fwhm_cv_threshold: float = 0.15  # CV below which all images kept (15%)
     fwhm_broad_percentile: float = 95.0  # percentile for broad symmetric case
 
-    # Background extraction (post-stack subsky)
-    # Disable for narrowband (H/O/S) which has inherently low sky background
-    subsky_enabled: bool = True
-    subsky_rbf: bool = True  # Use RBF interpolation (preferred) vs polynomial degree
-    subsky_degree: int = 1  # Polynomial degree if subsky_rbf is False
-    subsky_samples: int = 20
-    subsky_tolerance: float = 1.0
-    subsky_smooth: float = 0.5
+    # Background extraction - Pre-stack (seqsubsky on individual subs)
+    # Applied before registration/stacking. RBF handles complex gradients,
+    # poly degree 1 handles simple linear gradients.
+    # Disable for narrowband (H/O/S) which has inherently low sky background.
+    pre_stack_subsky_method: str = "rbf"  # "none", "rbf", "poly"
+    pre_stack_subsky_degree: int = 1  # Polynomial degree if method="poly"
+    pre_stack_subsky_samples: int = 20
+    pre_stack_subsky_tolerance: float = 1.0
+    pre_stack_subsky_smooth: float = 0.5  # RBF smoothing (0-1, higher=smoother)
+
+    # Background extraction - Post-stack (subsky on each channel stack)
+    # Applied after stacking, before cross-registration. Can clean up residual
+    # gradients that seqsubsky missed due to stacking combining gradients.
+    post_stack_subsky_method: str = "none"  # "none", "rbf", "poly"
+    post_stack_subsky_degree: int = 1  # Polynomial degree if method="poly"
+    post_stack_subsky_samples: int = 20
+    post_stack_subsky_tolerance: float = 1.0
+    post_stack_subsky_smooth: float = 0.5  # RBF smoothing (0-1, higher=smoother)
 
     # Deconvolution (sharpening via Richardson-Lucy)
     # For LRGB: runs on L stack and RGB composite

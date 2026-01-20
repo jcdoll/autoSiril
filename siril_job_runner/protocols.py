@@ -41,6 +41,17 @@ class SirilInterface(Protocol):
         tolerance: float = 1.0,
         smooth: float = 0.5,
     ) -> bool: ...
+    def seqsubsky(
+        self,
+        name: str,
+        method: str = "rbf",
+        degree: int = 1,
+        samples: int = 20,
+        tolerance: float = 1.0,
+        smooth: float = 0.5,
+        dither: bool = True,
+        prefix: Optional[str] = None,
+    ) -> bool: ...
 
     # Registration
     def register(self, name: str, twopass: bool = False) -> bool: ...

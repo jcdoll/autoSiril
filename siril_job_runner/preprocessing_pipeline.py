@@ -144,26 +144,55 @@ def run_pipeline(
         ):
             raise RuntimeError("Failed to calibrate light sequence")
 
+    # Pre-stack background extraction (seqsubsky on individual subs)
+    # Handles gradients on individual subs before they get combined
+    if cfg.pre_stack_subsky_method != "none":
+        method_desc = (
+            "RBF"
+            if cfg.pre_stack_subsky_method == "rbf"
+            else f"polynomial degree {cfg.pre_stack_subsky_degree}"
+        )
+        if log_fn:
+            log_fn(f"Background extraction (pre-stack, {method_desc})...")
+        if not siril.seqsubsky(
+            "pp_light",
+            method=cfg.pre_stack_subsky_method,
+            degree=cfg.pre_stack_subsky_degree,
+            samples=cfg.pre_stack_subsky_samples,
+            tolerance=cfg.pre_stack_subsky_tolerance,
+            smooth=cfg.pre_stack_subsky_smooth,
+        ):
+            if log_fn:
+                log_fn("Pre-stack background extraction failed, continuing without")
+            seq_to_register = "pp_light"
+        else:
+            seq_to_register = "bkg_pp_light"
+    else:
+        if log_fn:
+            log_fn("Pre-stack background extraction disabled")
+        seq_to_register = "pp_light"
+
     if log_fn:
         log_fn("Registering (2-pass)...")
-    if not siril.register("pp_light", twopass=True):
-        raise RuntimeError("Failed to register pp_light sequence")
+    if not siril.register(seq_to_register, twopass=True):
+        raise RuntimeError(f"Failed to register {seq_to_register} sequence")
 
     # Analyze FWHM distribution and compute adaptive threshold
     fwhm_threshold = compute_fwhm_threshold(
-        siril, process_dir, "pp_light", config, log_fn, log_detail_fn
+        siril, process_dir, seq_to_register, config, log_fn, log_detail_fn
     )
 
     if log_fn:
         log_fn("Applying registration...")
-    if not siril.seqapplyreg("pp_light", filter_fwhm=fwhm_threshold):
-        raise RuntimeError("Failed to apply registration to pp_light")
+    if not siril.seqapplyreg(seq_to_register, filter_fwhm=fwhm_threshold):
+        raise RuntimeError(f"Failed to apply registration to {seq_to_register}")
 
     if log_fn:
         log_fn("Stacking...")
     stack_path = stacks_dir / f"{stack_name}.fit"
+    registered_seq = f"r_{seq_to_register}"
     if not siril.stack(
-        "r_pp_light",
+        registered_seq,
         cfg.stack_rejection,
         cfg.stack_weighting,
         cfg.stack_sigma_low,
@@ -172,32 +201,35 @@ def run_pipeline(
         fastnorm=True,
         out=str(stack_path),
     ):
-        raise RuntimeError(f"Failed to stack r_pp_light to {stack_path}")
+        raise RuntimeError(f"Failed to stack {registered_seq} to {stack_path}")
 
     if not stack_path.exists():
         raise FileNotFoundError(f"Stack output not created: {stack_path}")
 
-    # Background extraction on stacked image (optional)
-    if cfg.subsky_enabled:
+    # Post-stack background extraction (subsky on stacked channel)
+    # Can clean up residual gradients that seqsubsky missed
+    if cfg.post_stack_subsky_method != "none":
+        method_desc = (
+            "RBF"
+            if cfg.post_stack_subsky_method == "rbf"
+            else f"polynomial degree {cfg.post_stack_subsky_degree}"
+        )
         if log_fn:
-            log_fn("Background extraction...")
+            log_fn(f"Background extraction (post-stack, {method_desc})...")
         if not siril.load(str(stack_path)):
             raise RuntimeError(f"Failed to load stack: {stack_path}")
         if siril.subsky(
-            rbf=cfg.subsky_rbf,
-            degree=cfg.subsky_degree,
-            samples=cfg.subsky_samples,
-            tolerance=cfg.subsky_tolerance,
-            smooth=cfg.subsky_smooth,
+            rbf=(cfg.post_stack_subsky_method == "rbf"),
+            degree=cfg.post_stack_subsky_degree,
+            samples=cfg.post_stack_subsky_samples,
+            tolerance=cfg.post_stack_subsky_tolerance,
+            smooth=cfg.post_stack_subsky_smooth,
         ):
             if not siril.save(str(stack_path)):
                 raise RuntimeError(f"Failed to save stack after subsky: {stack_path}")
         else:
             if log_fn:
-                log_fn("Background extraction failed, continuing without")
-    else:
-        if log_fn:
-            log_fn("Background extraction disabled")
+                log_fn("Post-stack background extraction failed, continuing without")
 
     if log_fn:
         log_fn(f"Complete -> {stack_path.name}")

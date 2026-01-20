@@ -23,7 +23,7 @@
   "options": {
     "palette": "SHO",
     "dark_temp_override": -10,
-    "subsky_enabled": false,
+    "pre_stack_subsky_method": "none",
     "autostretch_linked": false
   }
 }

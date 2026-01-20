@@ -7,28 +7,27 @@ LRGB Workflow (see docs/lrgb_workflow.md for details):
 
 LINEAR PHASE:
  1. Cross-register all stacks (R, G, B, L)
- 2. Background extraction (subsky) on EACH channel
- 3. Compose RGB (NO linear matching between channels)
- 4. Color calibration (SPCC) on RGB
- 5. Deconvolution on RGB and L (optional)
+ 2. Compose RGB (NO linear matching between channels)
+ 3. Color calibration (SPCC) on RGB
+ 4. Deconvolution on RGB and L (optional)
 
 STRETCH PHASE (always - baseline with original stars):
- 6. Stretch RGB and L
- 7. Combine LRGB
- 8. Color removal (SCNR)
- 9. Output baseline images (lrgb_autostretch, lrgb_veralux)
+ 5. Stretch RGB and L
+ 6. Combine LRGB
+ 7. Color removal (SCNR)
+ 8. Output baseline images (lrgb_autostretch, lrgb_veralux)
 
 STARNET PHASE (conditional - if starnet_enabled):
-10. Star removal on RGB -> RGB_starless + RGB_stars
-11. Star removal on L -> L_starless
-12. Stretch starless images
-13. Combine LRGB from starless
-14. Output starless images
-15. Recompose stars (if starcomposer_enabled)
-16. Output starcomposer images
+ 9. Star removal on RGB -> RGB_starless + RGB_stars
+10. Star removal on L -> L_starless
+11. Stretch starless images
+12. Combine LRGB from starless
+13. Output starless images
+14. Recompose stars (if starcomposer_enabled)
+15. Output starcomposer images
 
 Key principles:
-- Background extraction per-channel eliminates need for linear matching
+- Background extraction is done pre-stack on individual subs (seqsubsky degree 1)
 - SPCC must run on RGB before adding L
 - Baseline outputs always have original stars (no StarNet artifacts)
 - StarNet branch is optional and conditional on starnet_enabled config
@@ -337,18 +336,13 @@ def compose_lrgb(
     siril.register("stack", twopass=True)
     siril.seqapplyreg("stack", framing="min")
 
-    # Step 2: Save channels and apply background extraction
-    log_fn("Background extraction on each channel...")
+    # Step 2: Save channels with standard names
+    # Background extraction was done pre-stack on individual subs
+    log_fn("Saving registered channels...")
     for ch, idx in LRGB_CHANNEL_INDEX.items():
         siril.load(f"r_stack_{idx}")
-        siril.subsky(
-            rbf=True,
-            samples=cfg.subsky_samples,
-            tolerance=cfg.subsky_tolerance,
-            smooth=cfg.subsky_smooth,
-        )
         siril.save(ch)
-        log_fn(f"  {ch}: subsky applied")
+        log_fn(f"  {ch}: saved")
 
     # Diagnostic previews for individual stacks
     if cfg.diagnostic_previews:
@@ -610,18 +604,13 @@ def compose_rgb(
     siril.register("stack", twopass=True)
     siril.seqapplyreg("stack", framing="min")
 
-    # Step 2: Save channels with background extraction
-    log_fn("Background extraction on each channel...")
+    # Step 2: Save channels with standard names
+    # Background extraction was done pre-stack on individual subs
+    log_fn("Saving registered channels...")
     for ch, idx in RGB_CHANNEL_INDEX.items():
         siril.load(f"r_stack_{idx}")
-        siril.subsky(
-            rbf=True,
-            samples=cfg.subsky_samples,
-            tolerance=cfg.subsky_tolerance,
-            smooth=cfg.subsky_smooth,
-        )
         siril.save(ch)
-        log_fn(f"  {ch}: subsky applied")
+        log_fn(f"  {ch}: saved")
 
     if cfg.diagnostic_previews:
         log_fn("Saving diagnostic previews...")

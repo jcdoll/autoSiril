@@ -49,6 +49,41 @@ class SirilRegistrationMixin:
         cmd += f" -samples={samples} -tolerance={tolerance} -smooth={smooth}"
         return self.execute(cmd)
 
+    def seqsubsky(
+        self,
+        name: str,
+        method: str = "rbf",
+        degree: int = 1,
+        samples: int = 20,
+        tolerance: float = 1.0,
+        smooth: float = 0.5,
+        dither: bool = True,
+        prefix: Optional[str] = None,
+    ) -> bool:
+        """
+        Background extraction on sequence (pre-stack).
+
+        Args:
+            name: Sequence name
+            method: "rbf" for RBF interpolation, "poly" for polynomial
+            degree: Polynomial degree if method="poly" (1=linear, 2=quadratic, etc.)
+            samples: Samples per horizontal line
+            tolerance: Tolerance in MAD units (median + tolerance * mad)
+            smooth: RBF smoothing factor (0-1, higher=smoother gradients)
+            dither: Add dither to prevent banding (recommended)
+            prefix: Output sequence prefix (default: "bkg_")
+        """
+        if method == "rbf":
+            cmd = f"seqsubsky {name} -rbf"
+        else:
+            cmd = f"seqsubsky {name} {degree}"
+        cmd += f" -samples={samples} -tolerance={tolerance} -smooth={smooth}"
+        if not dither:
+            cmd += " -nodither"
+        if prefix:
+            cmd += f" -prefix={prefix}"
+        return self.execute(cmd)
+
     # Registration
 
     def register(self, name: str, twopass: bool = False) -> bool:
