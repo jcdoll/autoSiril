@@ -9,12 +9,6 @@ from pathlib import Path
 
 from .models import StackInfo
 
-# Narrowband palette definitions (channel mappings)
-PALETTES = {
-    "HOO": {"R": "H", "G": "O", "B": "O"},
-    "SHO": {"R": "S", "G": "H", "B": "O"},
-}
-
 
 def discover_stacks(stacks_dir: Path) -> dict[str, list[StackInfo]]:
     """

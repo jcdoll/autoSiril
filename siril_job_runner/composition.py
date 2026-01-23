@@ -17,7 +17,7 @@ from .hdr import HDRBlender
 from .logger import JobLogger
 from .models import CompositionResult, StackInfo
 from .protocols import SirilInterface
-from .stack_discovery import PALETTES, discover_stacks, is_hdr_mode
+from .stack_discovery import discover_stacks, is_hdr_mode
 from .stretch_pipeline import StretchPipeline
 
 
@@ -25,6 +25,7 @@ def _cross_register_stacks(
     siril: SirilInterface,
     stacks: dict[str, list[StackInfo]],
     output_dir: Path,
+    config: Config,
     logger: Optional[JobLogger] = None,
 ) -> dict[str, list[StackInfo]]:
     """
@@ -97,12 +98,16 @@ def _cross_register_stacks(
     siril.convert("stack", out="./registered")
     siril.cd(str(work_dir / "registered"))
 
-    # Set reference (1-based index)
-    siril.setref("stack", ref_idx + 1)
-    log(f"Set reference to image {ref_idx + 1}")
+    if config.cross_reg_twopass:
+        # 2-pass: Siril auto-selects best reference (ignores setref)
+        log("Using 2-pass registration (Siril auto-selects reference)")
+        siril.register("stack", twopass=True)
+    else:
+        # 1-pass: Use our computed reference (longest L or longest overall)
+        siril.setref("stack", ref_idx + 1)
+        log(f"Using 1-pass registration with reference image {ref_idx + 1}")
+        siril.register("stack", twopass=False)
 
-    # Register with 2-pass for better accuracy
-    siril.register("stack", twopass=True)
     siril.seqapplyreg("stack", framing="min")
 
     # Build result dict with registered paths
@@ -131,7 +136,6 @@ def _cross_register_stacks(
 
 # Re-export for backwards compatibility
 __all__ = [
-    "PALETTES",
     "discover_stacks",
     "is_hdr_mode",
     "Composer",
@@ -230,7 +234,7 @@ class Composer:
     def compose_narrowband(
         self,
         stacks: dict[str, list[StackInfo]],
-        palette: str = "HOO",
+        job_type: str = "SHO",
     ) -> CompositionResult:
         """Compose narrowband image using palette mapping."""
         return compose_narrowband(
@@ -240,7 +244,7 @@ class Composer:
             output_dir=self.output_dir,
             config=self.config,
             stretch_pipeline=self._stretch_pipeline,
-            palette=palette,
+            job_type=job_type,
             log_fn=self._log,
             log_step_fn=self._log_step,
             log_color_balance_fn=self._log_color_balance,
@@ -251,7 +255,6 @@ def compose_and_stretch(
     siril: SirilInterface,
     output_dir: Path,
     job_type: str,
-    palette: str = "HOO",
     config: Config = DEFAULTS,
     logger: Optional[JobLogger] = None,
 ) -> CompositionResult:
@@ -264,9 +267,8 @@ def compose_and_stretch(
     Args:
         siril: Siril interface
         output_dir: Output directory (contains stacks/ subdirectory)
-        job_type: "LRGB", "RGB", "SHO", or "HOO"
-        palette: Narrowband palette (for SHO/HOO)
-        config: Configuration with processing parameters
+        job_type: "LRGB", "RGB", "SHO", "HOO", "LSHO", "LHOO"
+        config: Configuration with processing parameters (includes palette)
         logger: Optional logger
 
     Returns:
@@ -292,7 +294,7 @@ def compose_and_stretch(
 
         # Cross-register ALL stacks before HDR blending
         # This ensures channels are aligned before blending different exposures
-        stacks = _cross_register_stacks(siril, stacks, output_dir, logger)
+        stacks = _cross_register_stacks(siril, stacks, output_dir, config, logger)
 
         blender = HDRBlender(siril, output_dir, config, logger)
 
@@ -323,7 +325,7 @@ def compose_and_stretch(
         return composer.compose_lrgb(stacks, is_hdr=hdr_mode)
     elif job_type == "RGB":
         return composer.compose_rgb(stacks)
-    elif job_type in ("SHO", "HOO"):
-        return composer.compose_narrowband(stacks, palette=palette or job_type)
+    elif job_type in ("SHO", "HOO", "LSHO", "LHOO"):
+        return composer.compose_narrowband(stacks, job_type=job_type)
     else:
         raise ValueError(f"Unknown job type: {job_type}")

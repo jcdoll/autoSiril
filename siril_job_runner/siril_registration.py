@@ -86,16 +86,55 @@ class SirilRegistrationMixin:
 
     # Registration
 
-    def register(self, name: str, twopass: bool = False) -> bool:
-        """Register a sequence."""
+    def register(
+        self,
+        name: str,
+        twopass: bool = False,
+        transf: Optional[str] = None,
+    ) -> bool:
+        """
+        Register a sequence.
+
+        Args:
+            name: Sequence name
+            twopass: Use 2-pass registration for better accuracy
+            transf: Transformation type (shift, similarity, affine, homography)
+                    Default is homography which handles rotation and scaling.
+        """
         cmd = f"register {name}"
         if twopass:
             cmd += " -2pass"
+        if transf:
+            cmd += f" -transf={transf}"
         return self.execute(cmd)
 
     def setref(self, name: str, index: int) -> bool:
         """Set reference image for a sequence (1-based index)."""
         return self.execute(f"setref {name} {index}")
+
+    def rotate(
+        self,
+        degrees: float,
+        nocrop: bool = False,
+        interp: Optional[str] = None,
+    ) -> bool:
+        """
+        Rotate the loaded image.
+
+        Args:
+            degrees: Rotation angle in degrees (positive = counterclockwise)
+            nocrop: If True, expand canvas to fit rotated image (black borders added)
+            interp: Interpolation method (none, nearest, cubic, lanczos4, linear, area)
+
+        Useful for pre-rotating images captured with different camera orientations
+        before cross-registration.
+        """
+        cmd = f"rotate {degrees}"
+        if nocrop:
+            cmd += " -nocrop"
+        if interp:
+            cmd += f" -interp={interp}"
+        return self.execute(cmd)
 
     def seqapplyreg(
         self,

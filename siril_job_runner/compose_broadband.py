@@ -38,7 +38,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .compose_helpers import apply_spcc_step
+from .compose_helpers import apply_spcc_step, save_diagnostic_preview
 from .config import Config
 from .models import CompositionResult, StackInfo
 from .psf_analysis import analyze_psf, format_psf_stats
@@ -63,20 +63,6 @@ def _link_or_copy(src: Path, dst: Path) -> None:
 LRGB_CHANNEL_INDEX = {"B": "00001", "G": "00002", "L": "00003", "R": "00004"}
 # RGB: B=00001, G=00002, R=00003
 RGB_CHANNEL_INDEX = {"B": "00001", "G": "00002", "R": "00003"}
-
-
-def _save_diagnostic_preview(
-    siril: "SirilInterface",
-    name: str,
-    output_dir: Path,
-    log_fn: callable,
-) -> None:
-    """Save a stretched preview image for diagnostics."""
-    siril.load(name)
-    siril.autostretch()
-    preview_stem = output_dir / f"diag_{name}"
-    siril.savejpg(str(preview_stem))
-    log_fn(f"Diagnostic preview: diag_{name}.jpg")
 
 
 def _apply_deconvolution(
@@ -372,12 +358,21 @@ def compose_lrgb(
             log_fn(f"  {ch}: loaded")
     else:
         # Step 2: Cross-register all stacks
-        # Use L channel (image 3) as reference - highest SNR and most detected stars
         log_fn("Cross-registering stacks...")
         siril.convert("stack", out="./registered")
         siril.cd(str(work_dir / "registered"))
-        siril.setref("stack", 3)  # L=00003 is image 3 in LRGB sequence (B=1, G=2, L=3, R=4)
-        siril.register("stack", twopass=True)
+
+        if cfg.cross_reg_twopass:
+            # 2-pass: Siril auto-selects best reference (ignores setref)
+            log_fn("Using 2-pass registration (Siril auto-selects reference)")
+            siril.register("stack", twopass=True)
+        else:
+            # 1-pass: Use L as reference (highest SNR, most stars)
+            # L=00003 is image 3 in LRGB sequence (B=1, G=2, L=3, R=4)
+            siril.setref("stack", 3)
+            log_fn("Using 1-pass registration with L as reference (image 3)")
+            siril.register("stack", twopass=False)
+
         siril.seqapplyreg("stack", framing="min")
         working_dir = work_dir / "registered"
 
@@ -414,7 +409,7 @@ def compose_lrgb(
     if cfg.diagnostic_previews:
         log_fn("Saving diagnostic previews...")
         for ch in ["R", "G", "B", "L"]:
-            _save_diagnostic_preview(siril, ch, output_dir, log_fn)
+            save_diagnostic_preview(siril, ch, output_dir, log_fn)
 
     # Step 3: Compose RGB
     log_fn("Creating RGB composite...")
@@ -428,7 +423,7 @@ def compose_lrgb(
     log_color_balance_fn(rgb_linear_path)
 
     if cfg.diagnostic_previews:
-        _save_diagnostic_preview(siril, "rgb", output_dir, log_fn)
+        save_diagnostic_preview(siril, "rgb", output_dir, log_fn)
 
     # Step 4: SPCC on RGB
     log_fn("Color calibration (SPCC) on RGB...")
@@ -439,7 +434,7 @@ def compose_lrgb(
     siril.save("rgb_spcc")
 
     if cfg.diagnostic_previews:
-        _save_diagnostic_preview(siril, "rgb_spcc", output_dir, log_fn)
+        save_diagnostic_preview(siril, "rgb_spcc", output_dir, log_fn)
 
     # Step 5: Deconvolution (optional, on linear data)
     rgb_source = "rgb_spcc"
@@ -684,12 +679,21 @@ def compose_rgb(
     siril.cd(str(work_dir))
 
     # Step 2: Cross-register stacks
-    # Use R channel (image 3) as reference - typically has better star profiles than B
     log_fn("Cross-registering stacks...")
     siril.convert("stack", out="./registered")
     siril.cd(str(work_dir / "registered"))
-    siril.setref("stack", 3)  # R=00003 is image 3 in RGB sequence (B=1, G=2, R=3)
-    siril.register("stack", twopass=True)
+
+    if cfg.cross_reg_twopass:
+        # 2-pass: Siril auto-selects best reference (ignores setref)
+        log_fn("Using 2-pass registration (Siril auto-selects reference)")
+        siril.register("stack", twopass=True)
+    else:
+        # 1-pass: Use R as reference (better star profiles than B)
+        # R=00003 is image 3 in RGB sequence (B=1, G=2, R=3)
+        siril.setref("stack", 3)
+        log_fn("Using 1-pass registration with R as reference (image 3)")
+        siril.register("stack", twopass=False)
+
     siril.seqapplyreg("stack", framing="min")
 
     # Step 3: Save channels with standard names
@@ -724,7 +728,7 @@ def compose_rgb(
     if cfg.diagnostic_previews:
         log_fn("Saving diagnostic previews...")
         for ch in ["R", "G", "B"]:
-            _save_diagnostic_preview(siril, ch, output_dir, log_fn)
+            save_diagnostic_preview(siril, ch, output_dir, log_fn)
 
     # Step 3: Compose RGB
     log_fn("Creating RGB composite...")

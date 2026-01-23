@@ -5,7 +5,7 @@ Color removal and other utilities used by broadband and narrowband composition.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from .config import Config
 from .psf_analysis import analyze_psf, format_psf_stats
@@ -14,11 +14,25 @@ if TYPE_CHECKING:
     from .protocols import SirilInterface
 
 
+def save_diagnostic_preview(
+    siril: "SirilInterface",
+    name: str,
+    output_dir: Path,
+    log_fn: Callable[[str], None],
+) -> None:
+    """Save a diagnostic preview JPG of the currently loaded image."""
+    siril.load(name)
+    siril.autostretch()
+    output_path = output_dir / f"diag_{name}.jpg"
+    siril.savejpg(str(output_path.with_suffix("")), 90)
+    log_fn(f"Diagnostic preview: {output_path.name}")
+
+
 def apply_color_removal_step(
     siril: "SirilInterface",
     config: Config,
     stretch_source: str,
-    log_fn: callable,
+    log_fn: Callable[[str], None],
 ) -> str:
     """Apply color cast removal and return the (possibly updated) stretch source."""
     if config.color_removal_mode == "none":
@@ -36,7 +50,7 @@ def apply_color_removal_step(
 def apply_color_removal(
     siril: "SirilInterface",
     config: Config,
-    log_fn: callable,
+    log_fn: Callable[[str], None],
 ) -> bool:
     """Apply color cast removal based on config mode."""
     if config.color_removal_mode == "none":
@@ -70,7 +84,7 @@ def apply_spcc_step(
     config: Config,
     output_dir: Path,
     type_name: str,
-    log_fn: callable,
+    log_fn: Callable[[str], None],
 ) -> tuple[Optional[Path], str]:
     """Apply SPCC and return (pcc_path, stretch_source)."""
     linear_pcc_path = None
@@ -106,13 +120,88 @@ def apply_spcc_step(
     return linear_pcc_path, stretch_source
 
 
+def neutralize_rgb_background(
+    siril: "SirilInterface",
+    image_name: str,
+    config: Config,
+    log_fn: Callable[[str], None],
+) -> bool:
+    """
+    Neutralize RGB background after palette application.
+
+    For dynamic narrowband palettes with channel scaling, backgrounds may shift.
+    This applies subsky + linear_match to neutralize:
+    1. Extract background with subsky
+    2. Split RGB into separate channels
+    3. Linear match G and B to R (using narrowband_balance bounds)
+    4. Recombine channels
+
+    Args:
+        siril: Siril interface
+        image_name: Name of loaded RGB image to neutralize
+        config: Config with subsky and narrowband_balance settings
+        log_fn: Logging function
+
+    Returns:
+        True if successful, False otherwise
+    """
+    log_fn("Neutralizing RGB background...")
+
+    # Step 1: Background extraction
+    siril.load(image_name)
+    if not siril.subsky(
+        rbf=(config.post_stack_subsky_method == "rbf"),
+        degree=config.post_stack_subsky_degree,
+        samples=config.post_stack_subsky_samples,
+        tolerance=config.post_stack_subsky_tolerance,
+        smooth=config.post_stack_subsky_smooth,
+    ):
+        log_fn("  subsky failed, skipping neutralization")
+        return False
+    siril.save(image_name)
+    log_fn("  subsky applied")
+
+    # Step 2: Split into R, G, B channels
+    siril.load(image_name)
+    if not siril.split("_nb_r", "_nb_g", "_nb_b"):
+        log_fn("  split failed, skipping neutralization")
+        return False
+    log_fn("  split into R, G, B channels")
+
+    # Step 3: Linear match G and B to R
+    # Use narrowband_balance bounds to match backgrounds only
+    low = config.narrowband_balance_low
+    high = config.narrowband_balance_high
+    log_fn(f"  linear matching G, B to R (bounds: {low:.2f}-{high:.2f})")
+
+    siril.load("_nb_g")
+    if not siril.linear_match(ref="_nb_r", low=low, high=high):
+        log_fn("  linear_match G failed")
+        return False
+    siril.save("_nb_g")
+
+    siril.load("_nb_b")
+    if not siril.linear_match(ref="_nb_r", low=low, high=high):
+        log_fn("  linear_match B failed")
+        return False
+    siril.save("_nb_b")
+
+    # Step 4: Recombine channels
+    if not siril.rgbcomp(r="_nb_r", g="_nb_g", b="_nb_b", out=image_name):
+        log_fn("  rgbcomp failed")
+        return False
+    log_fn("  recombined RGB")
+
+    return True
+
+
 def apply_rgb_deconvolution(
     siril: "SirilInterface",
     config: Config,
     output_dir: Path,
     stretch_source: str,
     type_name: str,
-    log_fn: callable,
+    log_fn: Callable[[str], None],
 ) -> str:
     """Apply deconvolution to RGB composite and return updated stretch_source."""
     if not config.deconv_enabled:

@@ -63,3 +63,10 @@ class SirilFileOpsMixin:
             out = out.replace("\\", "/")
             cmd += f" -out={out}"
         return self.execute(cmd)
+
+    def split(self, r_file: str, g_file: str, b_file: str) -> bool:
+        """Split loaded RGB image into three mono channel files."""
+        r_file = r_file.replace("\\", "/")
+        g_file = g_file.replace("\\", "/")
+        b_file = b_file.replace("\\", "/")
+        return self.execute(f"split {r_file} {g_file} {b_file}")

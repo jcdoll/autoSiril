@@ -176,7 +176,6 @@ class JobRunner:
             siril=self.siril,
             output_dir=self.output_dir,
             job_type=self.config.job_type,
-            palette=self.config.config.palette,
             config=self.config.config,
             logger=self.logger,
         )

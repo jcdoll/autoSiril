@@ -101,6 +101,11 @@ class Config:
     saturation_amount: float = 0.5  # 1.0 = +100%, override in job as needed
     saturation_background_factor: float = 1.0  # Threshold factor (0 disables)
 
+    # Cross-channel registration (for composing stacks)
+    # 2-pass: Siril auto-selects best reference (ignores setref)
+    # 1-pass: Uses our setref (L for LRGB/LSHO, R for RGB, H for SHO/HOO)
+    cross_reg_twopass: bool = True
+
     # Processing parameters
     temp_tolerance: float = 2.0
     linear_match_low: float = 0.0
@@ -146,6 +151,17 @@ class Config:
     post_stack_subsky_samples: int = 20
     post_stack_subsky_tolerance: float = 1.0
     post_stack_subsky_smooth: float = 0.5  # RBF smoothing (0-1, higher=smoother)
+
+    # Narrowband channel balancing (for SHO/HOO/LSHO/LHOO)
+    # Equalizes background levels between channels without affecting nebula signal.
+    # Workflow: subsky each channel, then linear_match S and O to H.
+    # Uses low high bounds to only match background/mid-tones, preserving emission ratios.
+    narrowband_balance_enabled: bool = True
+    narrowband_balance_reference: str = (
+        "H"  # Match other channels to this (typically H)
+    )
+    narrowband_balance_low: float = 0.0  # Ignore pixels below this (clip artifacts)
+    narrowband_balance_high: float = 0.5  # Ignore pixels above this (nebula signal)
 
     # Deconvolution (sharpening via Richardson-Lucy)
     # For LRGB: runs on L stack and RGB composite
@@ -214,7 +230,47 @@ class Config:
 
     # Job options
     denoise: bool = False
-    palette: str = "HOO"
+
+    # Narrowband palette for SHO/HOO composition
+    # Available: HOO, SHO, SHO_FORAXX, SHO_DYNAMIC
+    # Job "type" (LRGB, RGB, SHO, HOO) determines broadband vs narrowband
+    # This "palette" option selects the color mapping for narrowband jobs
+    palette: str = "SHO"
+
+    # Optional per-channel formula overrides (PixelMath syntax)
+    # Use channel names directly: "0.5*H + 0.5*O"
+    # These override the selected palette's formulas
+    palette_r_override: Optional[str] = None
+    palette_g_override: Optional[str] = None
+    palette_b_override: Optional[str] = None
+
+    # Channel scale expressions (applied after stretch, before palette formulas)
+    # PixelMath expressions to scale input channels before palette application.
+    # Use cross-terms for signal-dependent scaling that neutralization can't undo.
+    # Example: "O * (1 + 2 * H)" boosts O proportionally to H signal.
+    # Reference: https://thecoldestnights.com/2020/06/pixinsight-dynamic-narrowband-combinations-with-pixelmath/
+    palette_h_scale_expr: Optional[str] = None
+    palette_o_scale_expr: Optional[str] = None
+    palette_s_scale_expr: Optional[str] = None
+
+    # LinearFit to weakest channel (for dynamic palettes)
+    # Fits stronger channels to the weakest (typically O) in LINEAR space before stretch.
+    # This balances peak intensities so the dynamic formula can produce both blue and gold.
+    # Reference: https://thecoldestnights.com/2020/06/pixinsight-dynamic-narrowband-combinations-with-pixelmath/
+    # See also: https://jonrista.com/the-astrophotographers-guide/pixinsights/narrow-band-combinations-with-pixelmath-hoo/
+    palette_linearfit_to_weakest: bool = False
+
+    # Star separation for narrowband (requires StarNet)
+    # Separates stars before palette processing, allowing aggressive gamma on nebula
+    # without affecting star colors. Stars are composited back at the end.
+    narrowband_star_separation: bool = False
+    narrowband_star_source: str = (
+        "auto"  # "auto" (L if available, else H), or specific channel
+    )
+    narrowband_star_color: str = (
+        "mono"  # "mono" (white/grayscale), "native" (keep channel color)
+    )
+
     dark_temp_override: Optional[float] = None
     force_reprocess: bool = False  # Force re-stacking even if cached
 

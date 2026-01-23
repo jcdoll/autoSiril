@@ -89,7 +89,7 @@ def test_job_config_default_options():
     assert job.config.fwhm_bic_threshold == 10.0
     assert job.config.temp_tolerance == 2.0
     assert job.config.denoise is False
-    assert job.config.palette == "HOO"
+    assert job.config.palette == "SHO"
 
 
 def test_load_job_from_file(job_file):
@@ -143,7 +143,7 @@ def test_config_defaults():
     assert DEFAULTS.fwhm_bimodal_sigma == 3.0
     assert DEFAULTS.temp_tolerance == 2.0
     assert DEFAULTS.denoise is False
-    assert DEFAULTS.palette == "HOO"
+    assert DEFAULTS.palette == "SHO"
     # HDR defaults
     assert DEFAULTS.hdr_low_threshold == 0.7
     assert DEFAULTS.hdr_high_threshold == 0.9
