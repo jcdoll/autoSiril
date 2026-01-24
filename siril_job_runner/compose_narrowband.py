@@ -4,34 +4,27 @@ Narrowband composition for SHO imaging.
 Handles composition of H, S, O filter stacks into palette-mapped images.
 """
 
-import shutil
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from .compose_helpers import (
     apply_color_removal,
+    apply_deconvolution,
     neutralize_rgb_background,
     save_diagnostic_preview,
 )
 from .config import Config
 from .models import CompositionResult, StackInfo
 from .palettes import build_effective_palette, formula_to_pixelmath, get_palette
-from .psf_analysis import analyze_psf, format_psf_stats
-from .stretch_pipeline import StretchPipeline
+from .siril_file_ops import link_or_copy
+from .stretch_helpers import (
+    apply_saturation,
+    apply_stretch,
+    stretch_and_finalize,
+)
 
 if TYPE_CHECKING:
     from .protocols import SirilInterface
-
-
-def _link_or_copy(src: Path, dst: Path) -> None:
-    """Create symlink or copy file if symlinks unavailable (Windows without privileges)."""
-    if dst.exists() or dst.is_symlink():
-        dst.unlink()
-    if sys.platform == "win32":
-        shutil.copy2(src, dst)
-    else:
-        dst.symlink_to(src)
 
 
 def _process_dynamic_palette(
@@ -41,7 +34,6 @@ def _process_dynamic_palette(
     has_luminance: bool,
     narrowband_channels: list[str],
     registered_dir: Path,
-    stretch_pipeline: StretchPipeline,
     output_dir: Path,
     type_name: str,
     apply_palette_fn: Callable[[], None],
@@ -79,8 +71,8 @@ def _process_dynamic_palette(
         # Step 1: Stretch each channel independently
         for ch in all_channels:
             siril.load(f"{ch}_linear")
-            ch_path = str(registered_dir / f"{ch}_linear.fit")
-            stretch_pipeline.apply_stretch(method, source_path=ch_path)
+            ch_path = registered_dir / f"{ch}_linear.fit"
+            apply_stretch(siril, method, ch_path, cfg, log_fn)
             siril.save(ch)
             log_fn(f"  {ch}: stretched ({method})")
 
@@ -122,7 +114,7 @@ def _process_dynamic_palette(
 
         # Step 7: Apply saturation and save outputs
         siril.load("narrowband")
-        siril.satu(cfg.saturation_amount, cfg.saturation_background_factor)
+        apply_saturation(siril, cfg)
 
         base_name = f"{type_name}_auto{suffix}"
         auto_fit = output_dir / f"{base_name}.fit"
@@ -257,7 +249,6 @@ def compose_narrowband(
     stacks_dir: Path,
     output_dir: Path,
     config: Config,
-    stretch_pipeline: StretchPipeline,
     job_type: str,
     log_fn: Callable[[str], None],
     log_step_fn: Callable[[str], None],
@@ -317,7 +308,7 @@ def compose_narrowband(
     for ch, idx in channel_to_num.items():
         src_path = stacks[ch][0].path
         link_path = work_dir / f"stack_{idx}.fit"
-        _link_or_copy(src_path, link_path)
+        link_or_copy(src_path, link_path)
         log_fn(f"  {ch}: {src_path.name} -> stack_{idx}.fit")
 
     siril.cd(str(work_dir))
@@ -546,34 +537,15 @@ def compose_narrowband(
     # Optional deconvolution on narrowband composite
     if cfg.deconv_enabled:
         log_fn("Deconvolving narrowband composite...")
-        siril.load("narrowband")
-        psf_path = (
-            str(output_dir / f"psf_{type_name}.fit") if cfg.deconv_save_psf else None
+        deconv_result = apply_deconvolution(
+            siril, "narrowband", "narrowband_deconv", cfg, output_dir, log_fn, type_name
         )
-        if siril.makepsf(
-            method=cfg.deconv_psf_method,
-            symmetric=True,
-            save_psf=psf_path,
-        ):
-            if psf_path:
-                log_fn(f"PSF saved: psf_{type_name}.fit")
-                psf_stats = analyze_psf(Path(psf_path))
-                if psf_stats:
-                    for line in format_psf_stats(psf_stats):
-                        log_fn(f"  {line}")
-            if siril.rl(
-                iters=cfg.deconv_iterations,
-                regularization=cfg.deconv_regularization,
-                alpha=cfg.deconv_alpha,
-            ):
-                deconv_path = output_dir / f"{type_name}_deconv.fit"
-                siril.save(str(deconv_path))
-                stretch_source = str(deconv_path)
-                log_fn(f"Saved deconvolved: {deconv_path.name}")
-            else:
-                log_fn("Narrowband deconvolution failed, using original")
-        else:
-            log_fn("PSF creation failed, skipping deconvolution")
+        if deconv_result == "narrowband_deconv":
+            deconv_path = output_dir / f"{type_name}_deconv.fit"
+            siril.load("narrowband_deconv")
+            siril.save(str(deconv_path))
+            stretch_source = str(deconv_path)
+            log_fn(f"Saved deconvolved: {deconv_path.name}")
 
     # Final stretch and output
     if palette.dynamic:
@@ -584,7 +556,6 @@ def compose_narrowband(
             has_luminance=has_luminance,
             narrowband_channels=narrowband_channels,
             registered_dir=registered_dir,
-            stretch_pipeline=stretch_pipeline,
             output_dir=output_dir,
             type_name=type_name,
             apply_palette_fn=apply_palette_combination,
@@ -592,7 +563,14 @@ def compose_narrowband(
         )
     else:
         # Static palette: stretch combined RGB now
-        auto_paths = stretch_pipeline.auto_stretch(stretch_source, f"{type_name}_auto")
+        auto_paths = stretch_and_finalize(
+            siril=siril,
+            input_path=Path(stretch_source),
+            output_dir=output_dir,
+            basename=f"{type_name}_auto",
+            config=cfg,
+            log_fn=log_fn,
+        )
 
     return CompositionResult(
         linear_path=linear_path,

@@ -1,7 +1,6 @@
 """Tests for veralux_silentium module."""
 
 import numpy as np
-import pytest
 
 from siril_job_runner.veralux_silentium import (
     _compute_detail_guard,

@@ -30,6 +30,7 @@
   },
   "output": "M31/processed",
   "options": {
+    "saturation_amount": 0.25,
     "dark_temp_override": -10,
     "stretch_method": "veralux",
     "deconv_enabled": false,

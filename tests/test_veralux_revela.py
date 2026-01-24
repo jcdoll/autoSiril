@@ -1,7 +1,6 @@
 """Tests for veralux_revela module."""
 
 import numpy as np
-import pytest
 
 from siril_job_runner.veralux_revela import (
     _compute_shadow_mask,

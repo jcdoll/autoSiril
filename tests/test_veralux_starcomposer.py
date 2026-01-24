@@ -1,7 +1,6 @@
 """Tests for veralux_starcomposer module."""
 
 import numpy as np
-import pytest
 
 from siril_job_runner.veralux_starcomposer import (
     BlendMode,

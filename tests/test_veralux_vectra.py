@@ -1,7 +1,6 @@
 """Tests for veralux_vectra module."""
 
 import numpy as np
-import pytest
 
 from siril_job_runner.veralux_vectra import (
     _compute_hue_weights,

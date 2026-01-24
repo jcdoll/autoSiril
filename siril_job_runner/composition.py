@@ -18,7 +18,6 @@ from .logger import JobLogger
 from .models import CompositionResult, StackInfo
 from .protocols import SirilInterface
 from .stack_discovery import discover_stacks, is_hdr_mode
-from .stretch_pipeline import StretchPipeline
 
 
 def _cross_register_stacks(
@@ -168,7 +167,6 @@ class Composer:
         self.config = config
         self.logger = logger
         self.stacks_dir = self.output_dir / "stacks"
-        self._stretch_pipeline = StretchPipeline(siril, output_dir, config, self._log)
 
     def _log(self, message: str) -> None:
         if self.logger:
@@ -207,7 +205,6 @@ class Composer:
             stacks_dir=self.stacks_dir,
             output_dir=self.output_dir,
             config=self.config,
-            stretch_pipeline=self._stretch_pipeline,
             log_fn=self._log,
             log_step_fn=self._log_step,
             log_color_balance_fn=self._log_color_balance,
@@ -225,7 +222,6 @@ class Composer:
             stacks_dir=self.stacks_dir,
             output_dir=self.output_dir,
             config=self.config,
-            stretch_pipeline=self._stretch_pipeline,
             log_fn=self._log,
             log_step_fn=self._log_step,
             log_color_balance_fn=self._log_color_balance,
@@ -243,7 +239,6 @@ class Composer:
             stacks_dir=self.stacks_dir,
             output_dir=self.output_dir,
             config=self.config,
-            stretch_pipeline=self._stretch_pipeline,
             job_type=job_type,
             log_fn=self._log,
             log_step_fn=self._log_step,

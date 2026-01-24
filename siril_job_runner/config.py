@@ -98,7 +98,7 @@ class Config:
     veralux_starcomposer_blend_mode: str = "screen"  # "screen" or "linear_add"
 
     # Saturation (runs after all stretch methods)
-    saturation_amount: float = 0.5  # 1.0 = +100%, override in job as needed
+    saturation_amount: float = 0.25  # 1.0 = +100%, override in job as needed
     saturation_background_factor: float = 1.0  # Threshold factor (0 disables)
 
     # Cross-channel registration (for composing stacks)

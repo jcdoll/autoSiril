@@ -28,25 +28,6 @@ def save_diagnostic_preview(
     log_fn(f"Diagnostic preview: {output_path.name}")
 
 
-def apply_color_removal_step(
-    siril: "SirilInterface",
-    config: Config,
-    stretch_source: str,
-    log_fn: Callable[[str], None],
-) -> str:
-    """Apply color cast removal and return the (possibly updated) stretch source."""
-    if config.color_removal_mode == "none":
-        return stretch_source
-
-    siril.load(stretch_source)
-    success = apply_color_removal(siril, config, log_fn)
-    if success:
-        siril.save(stretch_source)
-    else:
-        log_fn("Color removal failed, continuing without")
-    return stretch_source
-
-
 def apply_color_removal(
     siril: "SirilInterface",
     config: Config,
@@ -195,46 +176,58 @@ def neutralize_rgb_background(
     return True
 
 
-def apply_rgb_deconvolution(
+def apply_deconvolution(
     siril: "SirilInterface",
+    source_name: str,
+    output_name: str,
     config: Config,
     output_dir: Path,
-    stretch_source: str,
-    type_name: str,
     log_fn: Callable[[str], None],
+    psf_suffix: str,
 ) -> str:
-    """Apply deconvolution to RGB composite and return updated stretch_source."""
-    if not config.deconv_enabled:
-        return stretch_source
+    """
+    Apply Richardson-Lucy deconvolution to an image.
 
-    log_fn("Deconvolving RGB composite...")
-    siril.load(stretch_source)
+    Args:
+        siril: Siril interface
+        source_name: Name of source image (Siril working name)
+        output_name: Name for deconvolved output
+        config: Configuration with deconvolution settings
+        output_dir: Directory for PSF output file
+        log_fn: Logging function
+        psf_suffix: Suffix for PSF filename (e.g., "rgb", "L", "sho")
+
+    Returns:
+        Name of result image (output_name if successful, source_name if failed)
+    """
+    siril.load(source_name)
+
     psf_path = (
-        str(output_dir / f"psf_{type_name}.fit") if config.deconv_save_psf else None
+        str(output_dir / f"psf_{psf_suffix}.fit") if config.deconv_save_psf else None
     )
+
     if siril.makepsf(
         method=config.deconv_psf_method,
         symmetric=True,
         save_psf=psf_path,
     ):
         if psf_path:
-            log_fn(f"PSF saved: psf_{type_name}.fit")
+            log_fn(f"PSF saved: psf_{psf_suffix}.fit")
             psf_stats = analyze_psf(Path(psf_path))
             if psf_stats:
                 for line in format_psf_stats(psf_stats):
                     log_fn(f"  {line}")
+
         if siril.rl(
             iters=config.deconv_iterations,
             regularization=config.deconv_regularization,
             alpha=config.deconv_alpha,
         ):
-            deconv_path = output_dir / f"{type_name}_deconv.fit"
-            siril.save(str(deconv_path))
-            log_fn(f"Saved deconvolved: {deconv_path.name}")
-            return str(deconv_path)
-        else:
-            log_fn("RGB deconvolution failed, using original")
-    else:
-        log_fn("RGB PSF creation failed, skipping deconvolution")
+            siril.save(output_name)
+            return output_name
 
-    return stretch_source
+        log_fn("Deconvolution failed, using original")
+    else:
+        log_fn("PSF creation failed, skipping deconvolution")
+
+    return source_name

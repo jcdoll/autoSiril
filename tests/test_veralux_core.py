@@ -1,7 +1,6 @@
 """Tests for veralux_core module."""
 
 import numpy as np
-import pytest
 
 from siril_job_runner.veralux_core import (
     atrous_decomposition,

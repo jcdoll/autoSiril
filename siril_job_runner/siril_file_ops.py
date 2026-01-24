@@ -4,7 +4,27 @@ Siril file operation commands.
 Provides mixin class for file and directory operations.
 """
 
+import shutil
+import sys
+from pathlib import Path
 from typing import Optional
+
+
+def link_or_copy(src: Path, dst: Path) -> None:
+    """
+    Create symlink or copy file if symlinks unavailable (Windows without privileges).
+
+    Args:
+        src: Source file path
+        dst: Destination path for link/copy
+    """
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    if sys.platform == "win32":
+        # Windows symlinks require admin or developer mode; use copy instead
+        shutil.copy2(src, dst)
+    else:
+        dst.symlink_to(src)
 
 
 class SirilFileOpsMixin:

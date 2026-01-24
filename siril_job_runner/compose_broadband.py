@@ -33,29 +33,27 @@ Key principles:
 - StarNet branch is optional and conditional on starnet_enabled config
 """
 
-import shutil
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .compose_helpers import apply_spcc_step, save_diagnostic_preview
+from .compose_helpers import (
+    apply_color_removal,
+    apply_deconvolution,
+    apply_spcc_step,
+    save_diagnostic_preview,
+)
 from .config import Config
 from .models import CompositionResult, StackInfo
-from .psf_analysis import analyze_psf, format_psf_stats
+from .siril_file_ops import link_or_copy
+from .stretch_helpers import (
+    apply_enhancements,
+    apply_saturation,
+    apply_stretch,
+    save_all_formats,
+)
 
 if TYPE_CHECKING:
     from .protocols import SirilInterface
-
-
-def _link_or_copy(src: Path, dst: Path) -> None:
-    """Create symlink or copy file if symlinks unavailable (Windows without privileges)."""
-    if dst.exists() or dst.is_symlink():
-        dst.unlink()
-    if sys.platform == "win32":
-        # Windows symlinks require admin or developer mode; use copy instead
-        shutil.copy2(src, dst)
-    else:
-        dst.symlink_to(src)
 
 
 # Mapping from channel name to alphabetical index (for registered sequences)
@@ -63,50 +61,6 @@ def _link_or_copy(src: Path, dst: Path) -> None:
 LRGB_CHANNEL_INDEX = {"B": "00001", "G": "00002", "L": "00003", "R": "00004"}
 # RGB: B=00001, G=00002, R=00003
 RGB_CHANNEL_INDEX = {"B": "00001", "G": "00002", "R": "00003"}
-
-
-def _apply_deconvolution(
-    siril: "SirilInterface",
-    source_name: str,
-    output_name: str,
-    config: Config,
-    output_dir: Path,
-    log_fn: callable,
-    psf_suffix: str,
-) -> str:
-    """Apply deconvolution to an image. Returns the name of the result."""
-    cfg = config
-    siril.load(source_name)
-
-    psf_path = (
-        str(output_dir / f"psf_{psf_suffix}.fit") if cfg.deconv_save_psf else None
-    )
-
-    if siril.makepsf(
-        method=cfg.deconv_psf_method,
-        symmetric=True,
-        save_psf=psf_path,
-    ):
-        if psf_path:
-            log_fn(f"PSF saved: psf_{psf_suffix}.fit")
-            psf_stats = analyze_psf(Path(psf_path))
-            if psf_stats:
-                for line in format_psf_stats(psf_stats):
-                    log_fn(f"  {line}")
-
-        if siril.rl(
-            iters=cfg.deconv_iterations,
-            regularization=cfg.deconv_regularization,
-            alpha=cfg.deconv_alpha,
-        ):
-            siril.save(output_name)
-            return output_name
-
-        log_fn("Deconvolution failed, using original")
-    else:
-        log_fn("PSF creation failed, skipping deconvolution")
-
-    return source_name
 
 
 def _apply_veralux_processing(
@@ -117,42 +71,13 @@ def _apply_veralux_processing(
     log_fn: callable,
 ) -> None:
     """Apply VeraLux post-processing (Silentium, Revela, Vectra) to stretched image."""
-    from .veralux_revela import apply_revela
-    from .veralux_silentium import apply_silentium
-    from .veralux_vectra import apply_vectra
-
     # Save current state to file for veralux processing
-    # Siril's save command adds .fit automatically, so pass path WITHOUT extension
     siril.load(source_name)
     image_path = working_dir / f"{source_name}.fit"
-    siril.save(str(working_dir / source_name))  # Siril adds .fit -> saves to image_path
+    siril.save(str(working_dir / source_name))
 
-    if config.veralux_silentium_enabled:
-        log_fn("Applying VeraLux Silentium (noise reduction)...")
-        success, stats = apply_silentium(siril, image_path, config, log_fn)
-        if success and stats:
-            log_fn(
-                f"Silentium applied: L_noise={stats.get('L_noise', 0):.4f}, "
-                f"chroma_noise={stats.get('chroma_noise', 0):.4f}"
-            )
-
-    if config.veralux_revela_enabled:
-        log_fn("Applying VeraLux Revela (detail enhancement)...")
-        success, stats = apply_revela(siril, image_path, config, log_fn)
-        if success and stats:
-            log_fn(
-                f"Revela applied: texture_boost={stats.get('texture_boost', 0):.2f}, "
-                f"structure_boost={stats.get('structure_boost', 0):.2f}"
-            )
-
-    if config.veralux_vectra_enabled:
-        log_fn("Applying VeraLux Vectra (smart saturation)...")
-        success, stats = apply_vectra(siril, image_path, config, log_fn)
-        if success and stats:
-            log_fn(
-                f"Vectra applied: base_boost={stats.get('base_boost', 0):.2f}, "
-                f"mean_boost={stats.get('mean_boost', 0):.2f}"
-            )
+    # Apply enhancements using shared helper
+    apply_enhancements(siril, image_path, config, log_fn)
 
     # Reload processed image
     siril.load(str(image_path))
@@ -212,66 +137,58 @@ def _stretch_and_combine_lrgb(
     log_fn: callable,
     use_veralux: bool,
 ) -> str:
-    """Stretch RGB and L, combine to LRGB, apply SCNR. Returns the combined image name."""
-    from . import veralux_stretch
-
+    """Stretch RGB and L, combine to LRGB, apply SCNR and saturation."""
     suffix = "veralux" if use_veralux else "auto"
+    method = "veralux" if use_veralux else "autostretch"
     rgb_stretched = f"rgb_{output_prefix}_{suffix}"
     l_stretched = f"L_{output_prefix}_{suffix}"
     lrgb_combined = f"lrgb_{output_prefix}_{suffix}"
 
+    # Stretch RGB
+    siril.load(rgb_source)
     if use_veralux:
-        # Stretch RGB with veralux
-        siril.load(rgb_source)
         temp_path = working_dir / f"{rgb_source}_temp.fit"
         siril.save(str(working_dir / f"{rgb_source}_temp"))
-        # Load a different image to release file lock on temp file (Windows issue)
-        siril.load(l_source)
-        success, log_d = veralux_stretch.apply_stretch(siril, temp_path, config, log_fn)
-        if success:
-            log_fn(f"  RGB veralux stretch applied (log_d={log_d:.2f})")
-            siril.save(rgb_stretched)
-        else:
+        siril.load(l_source)  # Release file lock (Windows)
+        success = apply_stretch(siril, method, temp_path, config, log_fn)
+        if not success:
             log_fn("  RGB veralux stretch failed, using autostretch")
             siril.load(rgb_source)
             siril.autostretch()
-            siril.save(rgb_stretched)
+    else:
+        apply_stretch(siril, method, working_dir / f"{rgb_source}.fit", config, log_fn)
+    siril.save(rgb_stretched)
 
-        # Stretch L with veralux
-        siril.load(l_source)
+    # Stretch L
+    siril.load(l_source)
+    if use_veralux:
         temp_path = working_dir / f"{l_source}_temp.fit"
         siril.save(str(working_dir / f"{l_source}_temp"))
-        # Load a different image to release file lock on temp file (Windows issue)
-        siril.load(rgb_source)
-        success, log_d = veralux_stretch.apply_stretch(siril, temp_path, config, log_fn)
-        if success:
-            log_fn(f"  L veralux stretch applied (log_d={log_d:.2f})")
-            siril.save(l_stretched)
-        else:
+        siril.load(rgb_source)  # Release file lock (Windows)
+        success = apply_stretch(siril, method, temp_path, config, log_fn)
+        if not success:
             log_fn("  L veralux stretch failed, using autostretch")
             siril.load(l_source)
             siril.autostretch()
-            siril.save(l_stretched)
     else:
-        # Stretch with Siril autostretch
-        siril.load(rgb_source)
-        siril.autostretch()
-        siril.save(rgb_stretched)
-
-        siril.load(l_source)
-        siril.autostretch()
-        siril.save(l_stretched)
+        apply_stretch(siril, method, working_dir / f"{l_source}.fit", config, log_fn)
+    siril.save(l_stretched)
 
     # Combine LRGB
     siril.rgbcomp(lum=l_stretched, rgb=rgb_stretched, out=lrgb_combined)
 
-    # SCNR
-    if config.color_removal_mode == "green":
+    # Color removal (SCNR)
+    if config.color_removal_mode != "none":
         siril.load(lrgb_combined)
-        siril.rmgreen(type=0, amount=1.0)
+        apply_color_removal(siril, config, log_fn)
         siril.save(lrgb_combined)
 
-    # Apply veralux post-processing for veralux branch
+    # Apply saturation
+    siril.load(lrgb_combined)
+    apply_saturation(siril, config)
+    siril.save(lrgb_combined)
+
+    # Apply veralux post-processing (Silentium/Revela/Vectra) for veralux branch
     if use_veralux:
         _apply_veralux_processing(siril, lrgb_combined, working_dir, config, log_fn)
 
@@ -287,11 +204,7 @@ def _save_outputs(
 ) -> None:
     """Save FIT, TIF, and JPG outputs."""
     siril.load(source_name)
-    fit_path = output_dir / f"{output_basename}.fit"
-    siril.save(str(fit_path))
-    siril.savetif(str(output_dir / output_basename))
-    siril.savejpg(str(output_dir / output_basename))
-    log_fn(f"Saved: {output_basename}.fit, .tif, .jpg")
+    save_all_formats(siril, output_dir, output_basename, log_fn)
 
 
 def compose_lrgb(
@@ -300,7 +213,6 @@ def compose_lrgb(
     stacks_dir: Path,
     output_dir: Path,
     config: Config,
-    stretch_pipeline,  # Not used directly anymore, but kept for API compatibility
     log_fn: callable,
     log_step_fn: callable,
     log_color_balance_fn: callable,
@@ -340,7 +252,7 @@ def compose_lrgb(
     for ch, idx in LRGB_CHANNEL_INDEX.items():
         src_path = stacks[ch][0].path
         link_path = work_dir / f"stack_{idx}.fit"
-        _link_or_copy(src_path, link_path)
+        link_or_copy(src_path, link_path)
         log_fn(f"  {ch}: {src_path.name} -> stack_{idx}.fit")
 
     siril.cd(str(work_dir))
@@ -442,11 +354,11 @@ def compose_lrgb(
 
     if cfg.deconv_enabled:
         log_fn("Deconvolving RGB...")
-        rgb_source = _apply_deconvolution(
+        rgb_source = apply_deconvolution(
             siril, "rgb_spcc", "rgb_deconv", cfg, output_dir, log_fn, "rgb"
         )
         log_fn("Deconvolving L...")
-        l_source = _apply_deconvolution(
+        l_source = apply_deconvolution(
             siril, "L", "L_deconv", cfg, output_dir, log_fn, "L"
         )
 
@@ -638,7 +550,6 @@ def compose_rgb(
     stacks_dir: Path,
     output_dir: Path,
     config: Config,
-    stretch_pipeline,
     log_fn: callable,
     log_step_fn: callable,
     log_color_balance_fn: callable,
@@ -673,7 +584,7 @@ def compose_rgb(
     for ch, idx in RGB_CHANNEL_INDEX.items():
         src_path = stacks[ch][0].path
         link_path = work_dir / f"stack_{idx}.fit"
-        _link_or_copy(src_path, link_path)
+        link_or_copy(src_path, link_path)
         log_fn(f"  {ch}: {src_path.name} -> stack_{idx}.fit")
 
     siril.cd(str(work_dir))
@@ -751,7 +662,7 @@ def compose_rgb(
     rgb_source = "rgb_spcc"
     if cfg.deconv_enabled:
         log_fn("Deconvolving RGB...")
-        rgb_source = _apply_deconvolution(
+        rgb_source = apply_deconvolution(
             siril, "rgb_spcc", "rgb_deconv", cfg, output_dir, log_fn, "rgb"
         )
 
@@ -761,17 +672,19 @@ def compose_rgb(
     # BRANCH 1: BASELINE WITH ORIGINAL STARS (always)
     # =========================================================================
     log_fn("Creating baseline outputs with original stars...")
-    from . import veralux_stretch
 
     # --- AUTOSTRETCH VERSION ---
     log_fn("Creating AUTOSTRETCH version (original stars)...")
     siril.load(rgb_source)
-    siril.autostretch()
+    apply_stretch(siril, "autostretch", working_dir / f"{rgb_source}.fit", cfg, log_fn)
     siril.save("rgb_auto")
-    if cfg.color_removal_mode == "green":
+    if cfg.color_removal_mode != "none":
         siril.load("rgb_auto")
-        siril.rmgreen(type=0, amount=1.0)
+        apply_color_removal(siril, cfg, log_fn)
         siril.save("rgb_auto")
+    siril.load("rgb_auto")
+    apply_saturation(siril, cfg)
+    siril.save("rgb_auto")
     _save_outputs(siril, "rgb_auto", output_dir, "rgb_autostretch", log_fn)
 
     # --- VERALUX VERSION ---
@@ -779,21 +692,20 @@ def compose_rgb(
     siril.load(rgb_source)
     temp_path = working_dir / f"{rgb_source}_temp.fit"
     siril.save(str(working_dir / f"{rgb_source}_temp"))
-    # Load a different image to release file lock on temp file (Windows issue)
-    siril.load("R")
-    success, log_d = veralux_stretch.apply_stretch(siril, temp_path, cfg, log_fn)
-    if success:
-        log_fn(f"  Veralux stretch applied (log_d={log_d:.2f})")
-        siril.save("rgb_veralux")
-    else:
+    siril.load("R")  # Release file lock (Windows)
+    success = apply_stretch(siril, "veralux", temp_path, cfg, log_fn)
+    if not success:
         log_fn("  Veralux stretch failed, using autostretch")
         siril.load(rgb_source)
         siril.autostretch()
-        siril.save("rgb_veralux")
-    if cfg.color_removal_mode == "green":
+    siril.save("rgb_veralux")
+    if cfg.color_removal_mode != "none":
         siril.load("rgb_veralux")
-        siril.rmgreen(type=0, amount=1.0)
+        apply_color_removal(siril, cfg, log_fn)
         siril.save("rgb_veralux")
+    siril.load("rgb_veralux")
+    apply_saturation(siril, cfg)
+    siril.save("rgb_veralux")
     _apply_veralux_processing(siril, "rgb_veralux", working_dir, cfg, log_fn)
     _save_outputs(siril, "rgb_veralux", output_dir, "rgb_veralux", log_fn)
 
@@ -838,10 +750,13 @@ def compose_rgb(
         siril.load("rgb_starless")
         siril.autostretch()
         siril.save("rgb_auto_starless")
-        if cfg.color_removal_mode == "green":
+        if cfg.color_removal_mode != "none":
             siril.load("rgb_auto_starless")
-            siril.rmgreen(type=0, amount=1.0)
+            apply_color_removal(siril, cfg, log_fn)
             siril.save("rgb_auto_starless")
+        siril.load("rgb_auto_starless")
+        apply_saturation(siril, cfg)
+        siril.save("rgb_auto_starless")
         _save_outputs(
             siril, "rgb_auto_starless", output_dir, "rgb_autostretch_starless", log_fn
         )
@@ -851,19 +766,19 @@ def compose_rgb(
         siril.load("rgb_starless")
         temp_path = working_dir / "rgb_starless_temp.fit"
         siril.save(str(working_dir / "rgb_starless_temp"))
-        # Load a different image to release file lock on temp file (Windows issue)
-        siril.load("R")
-        success, log_d = veralux_stretch.apply_stretch(siril, temp_path, cfg, log_fn)
-        if success:
-            siril.save("rgb_veralux_starless")
-        else:
+        siril.load("R")  # Release file lock (Windows)
+        success = apply_stretch(siril, "veralux", temp_path, cfg, log_fn)
+        if not success:
             siril.load("rgb_starless")
             siril.autostretch()
-            siril.save("rgb_veralux_starless")
-        if cfg.color_removal_mode == "green":
+        siril.save("rgb_veralux_starless")
+        if cfg.color_removal_mode != "none":
             siril.load("rgb_veralux_starless")
-            siril.rmgreen(type=0, amount=1.0)
+            apply_color_removal(siril, cfg, log_fn)
             siril.save("rgb_veralux_starless")
+        siril.load("rgb_veralux_starless")
+        apply_saturation(siril, cfg)
+        siril.save("rgb_veralux_starless")
         _apply_veralux_processing(
             siril, "rgb_veralux_starless", working_dir, cfg, log_fn
         )

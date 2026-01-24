@@ -155,7 +155,7 @@ def test_config_defaults():
     assert DEFAULTS.veralux_b == 6.0
     assert DEFAULTS.veralux_log_d_min == 0.0
     assert DEFAULTS.veralux_log_d_max == 7.0
-    assert DEFAULTS.saturation_amount == 0.5
+    assert DEFAULTS.saturation_amount == 0.25
 
 
 def test_config_override_any_value():
