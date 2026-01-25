@@ -1,10 +1,24 @@
 """
-Narrowband composition for SHO imaging.
+Narrowband composition for SHO/HOO imaging.
 
 Handles composition of H, S, O filter stacks into palette-mapped images.
+Supports optional L channel for LSHO/LHOO variants.
 
-Unified flow for all palette types:
-    register -> subsky -> balance -> stretch -> palette -> neutralize -> saturation -> save
+Processing flow:
+    1. Cross-register all channel stacks
+    2. Post-stack background extraction (subsky)
+    3. Channel balancing (linear_match to H)
+    4. StarNet on linear data (if enabled) -> {ch}_linear_starless + stars
+    5. For each stretch method (autostretch, veralux):
+       a. Stretch channels (starless if available)
+       b. Apply palette formulas -> narrowband RGB
+       c. Add L as luminance (if LSHO/LHOO)
+       d. Color removal (SCNR)
+       e. Background neutralization
+       f. Save starless output (if starnet enabled)
+       g. Composite stars back (if starnet enabled)
+       h. Apply saturation
+       i. Save final output
 """
 
 from pathlib import Path
@@ -77,7 +91,6 @@ def _apply_scale_expressions(
     siril: "SirilInterface",
     cfg: Config,
     narrowband_channels: list[str],
-    ch_prefix: str,
     log_fn: Callable[[str], None],
 ) -> None:
     """
@@ -85,6 +98,7 @@ def _apply_scale_expressions(
 
     Scale expressions allow non-linear channel manipulation (e.g., O + k*O^3)
     to boost signal in a way that survives linear background neutralization.
+    Operates on stretched channels saved with their base names (H, O, S).
     """
     scale_exprs = {
         "H": cfg.palette_h_scale_expr,
@@ -94,11 +108,10 @@ def _apply_scale_expressions(
     for ch in narrowband_channels:
         expr = scale_exprs.get(ch)
         if expr:
-            ch_name = f"{ch_prefix}{ch}"
-            siril.load(ch_name)
+            siril.load(ch)
             pm_expr = formula_to_pixelmath(expr)
             siril.pm(pm_expr)
-            siril.save(ch_name)
+            siril.save(ch)
             log_fn(f"  {ch}: scaled with {expr}")
 
 
@@ -164,12 +177,17 @@ def compose_narrowband(
     - LSHO: L, S, H, O channels (L as luminance)
 
     Palette (from config) determines color mapping:
+    - HOO: H->R, O->G, O->B (direct)
     - SHO: S->R, H->G, O->B (direct)
     - SHO_FORAXX: S->R, 0.5*H+0.5*O->G, O->B (blended)
-    - etc.
 
-    Unified flow for all palette types:
-        register -> subsky -> balance -> stretch -> palette -> neutralize -> saturation
+    When starnet_enabled=True, outputs per stretch method:
+    - {type}_stars.fit/tif/jpg (once, before stretch loop)
+    - {type}_starless_{method}.fit/tif/jpg
+    - {type}_auto_{method}.fit/tif/jpg (with stars composited)
+
+    When starnet_enabled=False:
+    - {type}_auto_{method}.fit/tif/jpg only
     """
     # Determine if job uses luminance channel
     has_luminance = job_type.startswith("L")
@@ -429,8 +447,8 @@ def compose_narrowband(
             siril.save(ch)
             log_fn(f"  {ch}: stretched ({method})")
 
-        # Step 2: Apply channel scale expressions (no prefix needed now)
-        _apply_scale_expressions(siril, cfg, narrowband_channels, "", log_fn)
+        # Step 2: Apply channel scale expressions
+        _apply_scale_expressions(siril, cfg, narrowband_channels, log_fn)
 
         # Step 3: Apply palette formulas
         apply_palette_combination()
