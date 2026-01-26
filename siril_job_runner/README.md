@@ -47,10 +47,10 @@ sirilpy is required for actual processing but is not available on PyPI. It comes
 
 Install local catalogs for faster processing and offline capability.
 
-In Siril GUI: **Scripts > Python Scripts > Core > Siril_Catalog_Installer**
+In Siril GUI: Scripts > Python Scripts > Core > Siril_Catalog_Installer
 
-1. **Astrometry Catalog** (~1.5GB): Select "Astrometry Catalog", click Install
-2. **SPCC Catalog** (~5-10GB): Select "SPCC Catalog", enter latitude/longitude, select "Visible from latitude", click Install
+1. Astrometry Catalog (~1.5GB): Select "Astrometry Catalog", click Install
+2. SPCC Catalog (~5-10GB): Select "SPCC Catalog", enter latitude/longitude, select "Visible from latitude", click Install
 
 Bend, Oregon: Latitude 44.06, Longitude -121.32
 
@@ -94,7 +94,7 @@ E:\Astro\RC51_ASI2600\
     └── M42_Jan2024.json
 ```
 
-**Key conventions:**
+Key conventions:
 - Dates use underscores: `2024_01_15`
 - Light folders: `{filter}{exposure}` (e.g., `L180`, `R60`)
 - Bias: No temperature (readout noise is temperature-independent)

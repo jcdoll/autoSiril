@@ -19,11 +19,9 @@ sirilScripts/
 
 ## Core Concepts
 
-**Job File**: JSON configuration defining what to process (target, filters, calibration dates, options).
-
-**Config**: Single dataclass in `config.py` with all processing parameters. Users override via `settings.json` or job file options.
-
-**Siril Interface**: `SirilWrapper` in `siril_wrapper.py` wraps pysiril. All Siril operations go through this interface.
+- Job files are JSON configurations defining what to process (target, filters, calibration dates, options)
+- `Config` dataclass in `config.py` holds all processing parameters; users override via `settings.json` or job options
+- `SirilWrapper` in `siril_wrapper.py` wraps pysiril; all Siril operations go through this interface
 
 ## Processing Pipeline
 
@@ -53,9 +51,9 @@ run_job.py → JobRunner
 
 ## Key Entry Points
 
-- **CLI**: `run_job.py` - parses args, loads job, runs pipeline
-- **Pipeline**: `JobRunner` in `job_runner.py` - orchestrates all stages
-- **Composition**: `compose_and_stretch()` in `composition.py` - routes to broadband/narrowband handlers
+- `run_job.py` - CLI, parses args, loads job, runs pipeline
+- `JobRunner` in `job_runner.py` - orchestrates all stages
+- `compose_and_stretch()` in `composition.py` - routes to broadband/narrowband handlers
 
 ## Configuration
 

@@ -193,13 +193,13 @@ Channel scale expressions can be applied before palette formulas via `palette_h_
 
 StarNet runs on LINEAR data with internal MTF stretch (`stretch=True`).
 
-**Broadband:**
+Broadband:
 - StarNet runs on RGB composite and L channel separately
 - Stars extracted from RGB
 - Baseline outputs preserve original stars (no StarNet artifacts)
 - Starless outputs use processed channels
 
-**Narrowband:**
+Narrowband:
 - StarNet runs on each channel independently (H, O, S, L)
 - Stars extracted from L (if available) or H
 - All outputs go through star separation/recomposition
