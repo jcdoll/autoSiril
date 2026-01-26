@@ -1,186 +1,157 @@
-# Implementation Todo List
+# Implementation Status
+
+The Siril Job Runner is fully implemented and operational. This document tracks the original implementation checklist and notes any remaining work.
 
 ## Code Standards
 
-- **<300 LOC per file** — split if approaching limit
-- **Clear separation of concerns** — one responsibility per module
-- **Tests via pytest** — test each module independently
-- **High quality, not over-engineered** — internal single-user tool
-- **No unnecessary abstractions** — keep it simple and direct
+- **<300 LOC per file** - enforced, large modules split into helpers
+- **Clear separation of concerns** - one responsibility per module
+- **Tests via pytest** - core modules tested
+- **High quality, not over-engineered** - internal single-user tool
+- **No unnecessary abstractions** - kept simple and direct
 
 ---
 
-## Phase 1: Core Infrastructure
+## Core Infrastructure - COMPLETE
 
-### 1.1 Logger (`src/logger.py`)
-- [ ] Create `JobLogger` class
-- [ ] Implement elapsed time tracking `[MM:SS]` format
-- [ ] Console output with indentation levels
-- [ ] Log file creation at `{output}/job_log_{timestamp}.txt`
-- [ ] Methods: `info()`, `step()`, `substep()`, `warning()`, `error()`
-- [ ] Context manager for timed operations
+### Logger (`siril_job_runner/logger.py`)
+- [x] `JobLogger` class with elapsed time tracking
+- [x] Console output with indentation levels
+- [x] Log file creation at `{output}/job_log_{timestamp}.txt`
+- [x] Methods: `info()`, `step()`, `substep()`, `warning()`, `error()`
+- [x] Context manager for timed operations
 
-### 1.2 FITS Utilities (`src/fits_utils.py`)
-- [ ] Function to read single FITS header
-- [ ] Extract: exposure time, sensor temperature, filter name
-- [ ] Handle common FITS keyword variations (EXPTIME vs EXPOSURE, etc.)
-- [ ] Function to scan directory of FITS files
-- [ ] Build requirements table from list of files
-- [ ] Return unique (exposure, temp, filter) combinations with counts
+### FITS Utilities (`siril_job_runner/fits_utils.py`)
+- [x] Read single FITS header
+- [x] Extract exposure time, sensor temperature, filter name
+- [x] Handle common FITS keyword variations
+- [x] Scan directory of FITS files
+- [x] Build requirements table from list of files
 
-### 1.3 Job Schema (`src/job_schema.json`)
-- [ ] Define JSON schema for job files
-- [ ] Required fields: name, type, calibration, lights, output
-- [ ] Optional fields: options (fwhm_filter, temp_tolerance, denoise)
-- [ ] Validation for type enum: LRGB, SHO, HOO
-- [ ] Validation for calibration dates format
+### Job Schema (`siril_job_runner/job_schema.json`)
+- [x] JSON schema for job files
+- [x] Required fields: name, type, calibration, lights
+- [x] Optional fields: output, options
+- [x] Validation for type enum: LRGB, RGB, SHO, HOO, LSHO, LHOO
+- [x] Validation for calibration dates format
 
 ---
 
-## Phase 2: Calibration System
+## Calibration System - COMPLETE
 
-### 2.1 Calibration Module (`src/calibration.py`)
-- [ ] `CalibrationManager` class
-- [ ] Constructor takes base path and calibration dates
-- [ ] Method: `find_master(type, params)` - returns path or None
-- [ ] Method: `can_build_master(type, params)` - checks raw frames exist
-- [ ] Method: `build_master(type, params, siril)` - stacks and caches
-- [ ] Temperature tolerance matching (±2°C default)
-- [ ] Master path resolution:
-  - [ ] `masters/bias/bias_{temp}_{date}.fit`
-  - [ ] `masters/darks/dark_{exposure}_{temp}_{date}.fit`
-  - [ ] `masters/flats/flat_{filter}_{date}.fit`
-- [ ] Raw path resolution:
-  - [ ] `raw/bias/{date}_{temp}/`
-  - [ ] `raw/darks/{date}_{exposure}_{temp}/`
-  - [ ] `raw/flats/{date}/{filter}/`
+### Calibration Module (`siril_job_runner/calibration.py`)
+- [x] `CalibrationManager` class
+- [x] `find_master()` - returns path or None
+- [x] `can_build_master()` - checks raw frames exist
+- [x] `build_master()` - stacks and caches
+- [x] Temperature tolerance matching
+- [x] Master path resolution
 
-### 2.2 Calibration Building
-- [ ] Build bias master: `stack rej 3 3 -nonorm`
-- [ ] Build dark master: `stack rej 3 3 -nonorm`
-- [ ] Build flat master: `calibrate` with bias, then `stack rej 3 3 -norm=mul`
+### Calibration Path Resolution (`siril_job_runner/calibration_paths.py`)
+- [x] Master and raw path conventions
+- [x] Temperature-independent bias handling
+- [x] Temperature-dependent dark handling
 
 ---
 
-## Phase 3: Preprocessing
+## Preprocessing - COMPLETE
 
-### 3.1 Preprocessing Module (`src/preprocessing.py`)
-- [ ] `Preprocessor` class
-- [ ] Method: `process_filter(filter_name, light_paths, calibration, output_dir)`
-- [ ] Steps:
-  - [ ] `convert` - Load raw lights into sequence
-  - [ ] `calibrate` - Apply bias, dark, flat
-  - [ ] `seqsubsky` - Background extraction (degree 1)
-  - [ ] `register` - 2-pass registration
-  - [ ] `seqapplyreg` - Apply with FWHM filter
-  - [ ] `stack` - Winsorized sigma rejection (`rej w 3 3 -norm=addscale`)
-- [ ] Return path to stacked result
-- [ ] Handle multi-directory light sources (multi-night)
+### Preprocessing Module (`siril_job_runner/preprocessing.py`)
+- [x] Process frames grouped by filter+exposure
+- [x] Steps: convert, calibrate, seqsubsky, register, seqapplyreg, stack
+- [x] Multi-directory light sources (multi-night)
+- [x] Cached stack reuse (skip if already exists)
+
+### Preprocessing Pipeline (`siril_job_runner/preprocessing_pipeline.py`)
+- [x] Adaptive FWHM threshold filtering (GMM + dip test)
+- [x] Background extraction (pre-stack)
+- [x] 2-pass registration
 
 ---
 
-## Phase 4: Composition
+## Composition - COMPLETE
 
-### 4.1 Composition Module (`src/composition.py`)
-- [ ] `Composer` class
-- [ ] Method: `compose_lrgb(stacks_dict, output_dir)`
-  - [ ] Register stacks across filters
-  - [ ] Linear match R, G, B to L (or reference)
-  - [ ] Optional: deconvolution on L
-  - [ ] `rgbcomp R G B`
-  - [ ] `rgbcomp -lum=L rgb`
-- [ ] Method: `compose_sho(stacks_dict, output_dir, palette)`
-  - [ ] Register stacks
-  - [ ] Linear match to H
-  - [ ] Palette mixing via pixelmath
-  - [ ] Palettes: HOO, SHO_blue_gold, SHO_blue_red
-- [ ] Method: `compose_hoo(stacks_dict, output_dir)`
-  - [ ] Simplified HOO composition
-- [ ] Save unstretched output
+### Composition Module (`siril_job_runner/composition.py`)
+- [x] `Composer` class
+- [x] `compose_lrgb()` - broadband with luminance
+- [x] `compose_rgb()` - broadband without luminance
+- [x] `compose_narrowband()` - SHO/HOO/LSHO/LHOO
 
-### 4.2 Stretching (`src/composition.py`)
-- [ ] Method: `stretch(input_path, output_dir)`
-- [ ] Save unstretched copy first
-- [ ] Apply: `autostretch`, `mtf 0.20 0.5 1.0`, `satu 1 0`
-- [ ] Save outputs: `.fit`, `.tif` (astro deflate), `.jpg` (90%)
-- [ ] Add VeraLux placeholder comment
+### Broadband Composition (`siril_job_runner/compose_broadband.py`)
+- [x] Cross-register stacks
+- [x] Post-stack background extraction
+- [x] SPCC color calibration
+- [x] StarNet star removal
+- [x] Autostretch and VeraLux stretch
 
----
+### Narrowband Composition (`siril_job_runner/compose_narrowband.py`)
+- [x] Channel balancing (linear_match to H)
+- [x] Palette formula application
+- [x] Per-channel star removal
+- [x] Star compositing
 
-## Phase 5: Orchestration
-
-### 5.1 Job Runner (`src/job_runner.py`)
-- [ ] `JobRunner` class
-- [ ] Constructor: load and validate job file
-- [ ] Method: `validate()` - Stage 0
-  - [ ] Scan all light frame headers
-  - [ ] Build requirements table
-  - [ ] Check calibration availability
-  - [ ] Return validation report
-- [ ] Method: `run_calibration()` - Stage 1
-  - [ ] Build any missing masters
-- [ ] Method: `run_preprocessing()` - Stage 2
-  - [ ] Process each filter
-- [ ] Method: `run_composition()` - Stage 3 + 4
-  - [ ] Compose based on type
-  - [ ] Stretch
-- [ ] Method: `run()` - Full pipeline
-- [ ] Dry run mode support
-
-### 5.2 CLI Entry Point (`run_job.py`)
-- [ ] Argument parsing with argparse
-- [ ] Arguments:
-  - [ ] `job_file` (positional) - path to JSON job file
-  - [ ] `--validate` - validation only
-  - [ ] `--stage {calibrate,preprocess,compose}` - run specific stage
-  - [ ] `--dry-run` - show what would happen
-  - [ ] `--base-path` - override base path (default from job or cwd)
-- [ ] Initialize sirilpy connection
-- [ ] Run JobRunner
-- [ ] Handle errors gracefully
+### HDR Blending (`siril_job_runner/hdr.py`)
+- [x] Brightness-weighted HDR blending
+- [x] Cross-registration before blend
 
 ---
 
-## Phase 6: Testing
+## VeraLux Processing - COMPLETE
 
-### 6.1 Test Infrastructure
-- [ ] Create `tests/` directory
-- [ ] Create `tests/conftest.py` with shared fixtures
-- [ ] Create sample FITS headers for testing (mock data)
+### Stretch (`siril_job_runner/veralux_stretch.py`, `veralux_core.py`)
+- [x] HyperMetric stretch with target median
+- [x] Binary search for D parameter
 
-### 6.2 Unit Tests
-- [ ] `tests/test_logger.py`
-  - [ ] Test elapsed time formatting
-  - [ ] Test log file creation
-  - [ ] Test different log levels
-- [ ] `tests/test_fits_utils.py`
-  - [ ] Test header extraction
-  - [ ] Test keyword variations
-  - [ ] Test requirements table building
-- [ ] `tests/test_calibration.py`
-  - [ ] Test master path resolution
-  - [ ] Test temperature tolerance matching
-  - [ ] Test can_build_master logic
-- [ ] `tests/test_job_runner.py`
-  - [ ] Test job file validation
-  - [ ] Test validation stage output
+### Silentium (`siril_job_runner/veralux_silentium.py`)
+- [x] Noise suppression via SWT wavelets
 
-### 6.3 Integration Tests
-- [ ] Test with real calibration data
-- [ ] Test with multi-night lights
-- [ ] Test full pipeline end-to-end
+### Revela (`siril_job_runner/veralux_revela.py`)
+- [x] Detail enhancement via ATWT wavelets
+
+### Vectra (`siril_job_runner/veralux_vectra.py`)
+- [x] Smart saturation in LCH color space
+
+### StarComposer (`siril_job_runner/veralux_starcomposer.py`)
+- [x] Controlled star recomposition
 
 ---
 
-## Phase 7: Polish
+## Orchestration - COMPLETE
 
-### 7.1 Example Job File
-- [ ] Create `examples/example_lrgb_job.json`
-- [ ] Create `examples/example_sho_job.json`
+### Job Runner (`siril_job_runner/job_runner.py`)
+- [x] `JobRunner` class
+- [x] `validate()` - Stage 0
+- [x] `run_calibration()` - Stage 1
+- [x] `run_preprocessing()` - Stage 2
+- [x] `run_composition()` - Stage 3 & 4
+- [x] `run()` - Full pipeline
+- [x] Dry run mode support
 
-### 7.2 Documentation
-- [ ] Update architecture.md if needed
-- [ ] Add usage examples to README
+### CLI Entry Point (`run_job.py`)
+- [x] Argument parsing with argparse
+- [x] `job_file` (positional) - path to JSON job file
+- [x] `--validate` - validation only
+- [x] `--stage {calibrate,preprocess,compose}` - run specific stage
+- [x] `--dry-run` - show what would happen
+- [x] `--base-path` - override base path
+- [x] `--log` - write to log file
+- [x] `--force` - force reprocessing
+- [x] `--seq-stats` - view registration stats
+
+---
+
+## Testing - PARTIAL
+
+### Existing Tests
+- [x] `tests/test_logger.py`
+- [x] `tests/test_fits_utils.py`
+- [x] `tests/test_calibration.py`
+- [x] `tests/test_job_config.py`
+- [x] `tests/test_veralux_*.py` - VeraLux module tests
+
+### Future Test Work
+- [ ] Integration tests with mock Siril
+- [ ] End-to-end tests with sample data
 
 ---
 
@@ -189,40 +160,47 @@
 ```
 sirilScripts/
 ├── docs/
-│   ├── architecture.md
-│   └── todo.md
-├── src/
-│   ├── logger.py          (<300 LOC)
-│   ├── fits_utils.py      (<300 LOC)
-│   ├── calibration.py     (<300 LOC)
-│   ├── preprocessing.py   (<300 LOC)
-│   ├── composition.py     (<300 LOC)
-│   ├── job_runner.py      (<300 LOC)
-│   └── job_schema.json
-├── tests/
-│   ├── conftest.py
-│   ├── test_logger.py
-│   ├── test_fits_utils.py
-│   ├── test_calibration.py
-│   └── test_job_runner.py
+│   ├── architecture.md      # Processing workflow documentation
+│   ├── code.md              # Code structure overview
+│   └── todo.md              # This file
 ├── examples/
 │   ├── example_lrgb_job.json
-│   └── example_sho_job.json
-├── run_job.py
-├── pytest.ini
+│   ├── example_lrgb_hdr_job.json
+│   ├── example_sho_job.json
+│   └── example_hoo_job.json
+├── jobs/                     # User job files
+├── logs/                     # Processing logs
+├── siril_job_runner/
+│   ├── __init__.py
+│   ├── calibration.py        # Calibration master building
+│   ├── calibration_paths.py  # Path resolution
+│   ├── compose_broadband.py  # LRGB/RGB composition
+│   ├── compose_narrowband.py # SHO/HOO composition
+│   ├── composition.py        # Composition orchestration
+│   ├── config.py             # Centralized configuration
+│   ├── fits_utils.py         # FITS header parsing
+│   ├── hdr.py                # HDR blending
+│   ├── job_config.py         # Job file loading
+│   ├── job_runner.py         # Pipeline orchestration
+│   ├── job_schema.json       # Job file schema
+│   ├── job_validation.py     # Job validation
+│   ├── logger.py             # Logging utilities
+│   ├── models.py             # Shared data models
+│   ├── palettes.py           # Narrowband palettes
+│   ├── preprocessing.py      # Frame preprocessing
+│   ├── preprocessing_pipeline.py
+│   ├── preprocessing_utils.py
+│   ├── protocols.py          # Interface protocols
+│   ├── sequence_*.py         # Sequence file parsing/analysis
+│   ├── siril_*.py            # Siril operation wrappers
+│   ├── veralux_*.py          # VeraLux processing modules
+│   └── README.md             # Module documentation
+├── tests/
+│   ├── conftest.py
+│   └── test_*.py
+├── xisf_to_fits/             # XISF converter (separate tool)
+├── run_job.py                # CLI entry point
+├── settings.template.json    # Settings template
+├── pyproject.toml
 └── README.md
 ```
-
----
-
-## Implementation Order
-
-1. `src/logger.py`
-2. `src/fits_utils.py`
-3. `src/calibration.py`
-4. `src/job_schema.json`
-5. `src/preprocessing.py`
-6. `src/composition.py`
-7. `src/job_runner.py`
-8. `run_job.py`
-9. `examples/example_job.json`
