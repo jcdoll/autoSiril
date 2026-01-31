@@ -50,9 +50,11 @@ class Config:
     veralux_b: float = 6.0  # Highlight protection / curve knee (higher preserves stars)
     veralux_log_d_min: float = 0.0  # Min log_d for binary search (D = 10^log_d)
     veralux_log_d_max: float = 7.0  # Max log_d for binary search
+    # Sensor profile for luminance weights (rec709, imx571, imx455, imx533, imx585, hoo, sho)
+    veralux_sensor_profile: str = "imx571"
 
     # VeraLux Revela - Detail enhancement (ATWT wavelets)
-    veralux_revela_enabled: bool = False
+    veralux_revela_enabled: bool = True
     veralux_revela_texture: float = 50.0  # Fine detail boost 0-100
     veralux_revela_structure: float = 50.0  # Medium structure boost 0-100
     veralux_revela_shadow_auth: float = 25.0  # Shadow protection 0-100
@@ -71,7 +73,7 @@ class Config:
     veralux_vectra_magenta: Optional[float] = None
 
     # VeraLux Silentium - Noise suppression (SWT wavelets)
-    veralux_silentium_enabled: bool = False
+    veralux_silentium_enabled: bool = True
     veralux_silentium_intensity: float = 25.0  # Luminance noise reduction 0-100
     veralux_silentium_detail_guard: float = 50.0  # Detail protection 0-100
     veralux_silentium_chroma: float = 30.0  # Chroma noise reduction 0-100
@@ -94,6 +96,7 @@ class Config:
     veralux_starcomposer_log_d: float = 1.0  # Star intensity 0-2
     veralux_starcomposer_hardness: float = 6.0  # Profile hardness 1-100
     veralux_starcomposer_color_grip: float = 0.5  # Vector vs scalar 0-1
+    veralux_starcomposer_shadow_conv: float = 0.0  # Shadow convergence 0-3
     veralux_starcomposer_blend_mode: str = "screen"  # "screen" or "linear_add"
 
     # Narrowband star options (used when starnet_enabled and narrowband job)
@@ -183,7 +186,7 @@ class Config:
     # For RGB/SHO/HOO: runs on combined image
     # Docs: https://siril.readthedocs.io/en/stable/processing/deconvolution.html
     # Tips: https://siril.readthedocs.io/en/stable/processing/deconvolution.html#deconvolution-usage-tips
-    deconv_enabled: bool = False
+    deconv_enabled: bool = True
     deconv_psf_method: str = (
         "stars"  # "stars" (from detected stars) or "blind" (estimate)
     )

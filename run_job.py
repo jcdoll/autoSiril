@@ -344,9 +344,18 @@ Examples:
                 cal_paths = runner.run_calibration(validation)
                 runner.run_preprocessing(cal_paths)
             elif args.stage == "compose":
-                # Need stacks to exist
-                print("ERROR: Compose stage requires preprocessing to be complete")
-                sys.exit(1)
+                # Run composition (discovers stacks from output_dir/stacks/)
+                result = runner.run_composition()
+                if result:
+                    print()
+                    print("Outputs:")
+                    print(f"  Linear: {result.linear_path}")
+                    if result.linear_pcc_path:
+                        print(f"  Linear (PCC): {result.linear_pcc_path}")
+                    print(f"  Auto FIT: {result.auto_fit}")
+                    print(f"  Auto TIF: {result.auto_tif}")
+                    print(f"  Auto JPG: {result.auto_jpg}")
+                    print(f"  Stacks: {result.stacks_dir}")
 
             runner.close()
 

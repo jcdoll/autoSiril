@@ -65,7 +65,9 @@ def _compute_signal_probability(channel: np.ndarray) -> np.ndarray:
 
 def _auto_stretch_proxy(channel: np.ndarray) -> np.ndarray:
     """
-    Simple auto-stretch for edge detection preprocessing.
+    MTF-based auto-stretch for edge detection preprocessing.
+
+    Reference: Replicates Siril's auto-stretch logic with MTF transfer.
 
     Args:
         channel: 2D image array
@@ -73,14 +75,45 @@ def _auto_stretch_proxy(channel: np.ndarray) -> np.ndarray:
     Returns:
         Stretched array in [0, 1]
     """
-    med = np.median(channel)
-    mad = np.median(np.abs(channel - med))
-    sigma = 1.4826 * mad if mad > 0 else 1e-6
+    MAD_NORM = 1.4826
+    SHADOWS_CLIPPING = -2.8
+    TARGET_BG = 0.25
 
-    low = med - 2.5 * sigma
-    high = med + 5.0 * sigma
-    stretched = (channel - low) / (high - low + 1e-9)
-    return np.clip(stretched, 0.0, 1.0).astype(np.float32)
+    # Calculate stats
+    median = float(np.median(channel))
+    diff = np.abs(channel - median)
+    mad = float(np.median(diff)) * MAD_NORM
+    if mad == 0.0:
+        mad = 0.001
+
+    shadows = max(0.0, median + SHADOWS_CLIPPING * mad)
+    highlights = 1.0
+
+    # Find midtones
+    x = (median - shadows) / (highlights - shadows + 1e-9)
+    x = np.clip(x, 0.0, 1.0)
+    y = TARGET_BG
+
+    if x == 0.5 or x == y:
+        midtones = 0.5
+    else:
+        num = x * (y - 1.0)
+        den = 2.0 * x * y - x - y
+        midtones = 0.5 if den == 0.0 else num / den
+    midtones = np.clip(midtones, 0.01, 0.99)
+
+    # Apply MTF
+    img_norm = (channel - shadows) / (highlights - shadows + 1e-9)
+    img_norm = np.clip(img_norm, 0.0, 1.0)
+    m = midtones
+    num_m = (m - 1.0) * img_norm
+    den_m = (2.0 * m - 1.0) * img_norm - m
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = num_m / den_m
+        out = np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=0.0)
+
+    return out.astype(np.float32)
 
 
 def _compute_edge_map(L: np.ndarray) -> np.ndarray:

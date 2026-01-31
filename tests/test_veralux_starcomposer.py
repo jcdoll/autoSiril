@@ -4,7 +4,12 @@ import numpy as np
 
 from siril_job_runner.veralux_starcomposer import (
     BlendMode,
-    apply_color_grip,
+    _apply_color_grip,
+    _apply_gamma_conditioning,
+    _apply_micro_blur,
+    _calculate_anchor_adaptive,
+    _stretch_scalar,
+    _stretch_vector,
     blend_linear_add,
     blend_screen,
     compose_stars,
@@ -18,27 +23,27 @@ class TestHyperbolicStretch:
     def test_stretch_preserves_zero(self):
         """Zero input should give zero output."""
         data = np.array([0.0])
-        result = hyperbolic_stretch(data, log_d=1.0, hardness=6.0)
+        result = hyperbolic_stretch(data, D=10.0, b=6.0)
         np.testing.assert_almost_equal(result[0], 0.0, decimal=5)
 
     def test_stretch_preserves_one(self):
         """One input should give one output (normalized)."""
         data = np.array([1.0])
-        result = hyperbolic_stretch(data, log_d=1.0, hardness=6.0)
+        result = hyperbolic_stretch(data, D=10.0, b=6.0)
         np.testing.assert_almost_equal(result[0], 1.0, decimal=5)
 
     def test_stretch_monotonic(self):
         """Stretch should be monotonically increasing."""
         data = np.linspace(0, 1, 100)
-        result = hyperbolic_stretch(data, log_d=1.0, hardness=6.0)
+        result = hyperbolic_stretch(data, D=10.0, b=6.0)
         assert np.all(np.diff(result) >= 0)
 
-    def test_higher_log_d_brighter(self):
-        """Higher log_d should give brighter output for mid-values."""
+    def test_higher_D_brighter(self):
+        """Higher D should give brighter output for mid-values."""
         data = np.array([0.5])
-        low_d = hyperbolic_stretch(data, log_d=0.5, hardness=6.0)
-        high_d = hyperbolic_stretch(data, log_d=1.5, hardness=6.0)
-        assert high_d[0] > low_d[0]
+        low_D = hyperbolic_stretch(data, D=5.0, b=6.0)
+        high_D = hyperbolic_stretch(data, D=50.0, b=6.0)
+        assert high_D[0] > low_D[0]
 
 
 class TestBlendModes:
@@ -73,32 +78,102 @@ class TestBlendModes:
         assert result[0] == 1.0
 
 
-class TestColorGrip:
-    """Tests for color grip function."""
+class TestPreprocessing:
+    """Tests for preprocessing functions."""
 
-    def test_color_grip_zero_gives_grayscale(self):
-        """Zero color grip should give grayscale stars."""
-        stars = np.array([[[0.8]], [[0.4]], [[0.2]]])
-        result = apply_color_grip(stars, color_grip=0.0)
-        np.testing.assert_almost_equal(result[0], result[1])
-        np.testing.assert_almost_equal(result[1], result[2])
+    def test_gamma_conditioning_darkens(self):
+        """Gamma 2.4 should darken mid-tones."""
+        data = np.array([[[0.5]]])
+        result = _apply_gamma_conditioning(data, gamma=2.4)
+        assert result[0, 0, 0] < 0.5
 
-    def test_color_grip_one_preserves_color(self):
-        """Full color grip should preserve original colors."""
-        stars = np.array([[[0.8]], [[0.4]], [[0.2]]])
-        result = apply_color_grip(stars, color_grip=1.0)
-        np.testing.assert_array_almost_equal(stars, result)
+    def test_gamma_conditioning_preserves_extremes(self):
+        """Gamma should preserve 0 and 1."""
+        data = np.array([[[0.0, 1.0]]])
+        result = _apply_gamma_conditioning(data, gamma=2.4)
+        np.testing.assert_almost_equal(result[0, 0, 0], 0.0)
+        np.testing.assert_almost_equal(result[0, 0, 1], 1.0)
 
-    def test_color_grip_intermediate(self):
-        """Intermediate color grip should be between grayscale and color."""
-        stars = np.array([[[0.8]], [[0.4]], [[0.2]]])
-        result = apply_color_grip(stars, color_grip=0.5)
+    def test_micro_blur_smooths(self):
+        """Micro-blur should reduce sharp transitions."""
+        data = np.zeros((3, 32, 32))
+        data[:, 16, 16] = 1.0  # Single bright pixel
+        result = _apply_micro_blur(data, sigma=0.5)
+        # Bright pixel should spread to neighbors
+        assert result[0, 16, 17] > 0.0
+        assert result[0, 16, 16] < 1.0
 
-        gray = apply_color_grip(stars, color_grip=0.0)
-        color = apply_color_grip(stars, color_grip=1.0)
+    def test_anchor_adaptive_returns_reasonable_value(self):
+        """Anchor should be a small positive value for typical data."""
+        data = np.random.rand(3, 64, 64) * 0.5 + 0.1
+        anchor = _calculate_anchor_adaptive(data)
+        assert 0.0 <= anchor < 0.5
 
-        # Red channel should be between gray and full color
-        assert gray[0, 0, 0] <= result[0, 0, 0] <= color[0, 0, 0]
+
+class TestHybridEngine:
+    """Tests for scalar/vector branches and color grip."""
+
+    def test_scalar_stretches_channels_independently(self):
+        """Scalar branch should stretch each channel independently."""
+        data = np.zeros((3, 32, 32))
+        data[0] = 0.5  # R
+        data[1] = 0.3  # G
+        data[2] = 0.1  # B
+
+        result = _stretch_scalar(data, D=10.0, b=6.0)
+
+        # Each channel should have different output based on its input
+        assert result[0].mean() > result[1].mean() > result[2].mean()
+
+    def test_vector_preserves_ratios(self):
+        """Vector branch should preserve color ratios."""
+        data = np.ones((3, 32, 32))
+        data[0] = 0.6  # R
+        data[1] = 0.3  # G
+        data[2] = 0.1  # B
+
+        result = _stretch_vector(data, D=10.0, b=6.0)
+
+        # Ratios should be approximately preserved
+        input_ratio = data[0, 0, 0] / data[1, 0, 0]
+        output_ratio = result[0, 0, 0] / result[1, 0, 0]
+        np.testing.assert_almost_equal(input_ratio, output_ratio, decimal=1)
+
+    def test_color_grip_zero_uses_scalar(self):
+        """Zero grip should give scalar result."""
+        scalar = np.array([[[0.8]], [[0.8]], [[0.8]]])
+        vector = np.array([[[0.6]], [[0.4]], [[0.2]]])
+
+        result = _apply_color_grip(scalar, vector, grip=0.0)
+
+        np.testing.assert_array_almost_equal(result, scalar)
+
+    def test_color_grip_one_uses_vector(self):
+        """Full grip should give vector result."""
+        scalar = np.array([[[0.8]], [[0.8]], [[0.8]]])
+        vector = np.array([[[0.6]], [[0.4]], [[0.2]]])
+
+        result = _apply_color_grip(scalar, vector, grip=1.0)
+
+        np.testing.assert_array_almost_equal(result, vector)
+
+    def test_shadow_conv_reduces_vector_in_dark(self):
+        """Shadow convergence should reduce vector influence in dark areas."""
+        # Scalar and vector with different values
+        scalar = np.array([[[0.2]], [[0.2]], [[0.2]]])  # Dark, uniform
+        vector = np.array([[[0.3]], [[0.2]], [[0.1]]])  # Dark, colored
+
+        # With no shadow conv, grip=1 should give vector
+        result_no_shadow = _apply_color_grip(scalar, vector, grip=1.0, shadow_conv=0.0)
+
+        # With shadow conv, dark areas should lean toward scalar
+        result_with_shadow = _apply_color_grip(scalar, vector, grip=1.0, shadow_conv=2.0)
+
+        # Result with shadow should be closer to scalar than result without
+        diff_no_shadow = np.abs(result_no_shadow - scalar).mean()
+        diff_with_shadow = np.abs(result_with_shadow - scalar).mean()
+
+        assert diff_with_shadow < diff_no_shadow
 
 
 class TestComposeStars:
@@ -126,8 +201,11 @@ class TestComposeStars:
         _, stats = compose_stars(starless, starmask)
 
         assert "log_d" in stats
+        assert "D" in stats
         assert "hardness" in stats
         assert "color_grip" in stats
+        assert "shadow_conv" in stats
+        assert "anchor" in stats
         assert "blend_mode" in stats
         assert "star_brightness_mean" in stats
 
@@ -156,3 +234,33 @@ class TestComposeStars:
         starmask = np.zeros((3, 32, 32))
         result, _ = compose_stars(starless, starmask)
         np.testing.assert_array_almost_equal(starless, result, decimal=3)
+
+    def test_color_grip_affects_output(self):
+        """Different color grip values should produce different results."""
+        starless = np.ones((3, 32, 32)) * 0.2
+        starmask = np.ones((3, 32, 32))
+        starmask[0] = 0.3  # R
+        starmask[1] = 0.2  # G
+        starmask[2] = 0.1  # B
+
+        result_scalar, _ = compose_stars(starless, starmask, color_grip=0.0)
+        result_vector, _ = compose_stars(starless, starmask, color_grip=1.0)
+
+        # Results should be different
+        assert not np.allclose(result_scalar, result_vector)
+
+    def test_shadow_conv_affects_output(self):
+        """Shadow convergence should affect dark regions."""
+        starless = np.ones((3, 32, 32)) * 0.1  # Dark image
+        starmask = np.ones((3, 32, 32)) * 0.1
+        starmask[0] = 0.2  # Colored stars
+
+        result_no_shadow, _ = compose_stars(
+            starless, starmask, color_grip=1.0, shadow_conv=0.0
+        )
+        result_with_shadow, _ = compose_stars(
+            starless, starmask, color_grip=1.0, shadow_conv=2.0
+        )
+
+        # Results should be different
+        assert not np.allclose(result_no_shadow, result_with_shadow)

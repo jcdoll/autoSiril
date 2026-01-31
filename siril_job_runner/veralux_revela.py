@@ -13,7 +13,7 @@ from typing import Callable
 
 import numpy as np
 from astropy.io import fits
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import convolve
 
 from siril_job_runner.config import Config
 from siril_job_runner.protocols import SirilInterface
@@ -25,9 +25,7 @@ from siril_job_runner.veralux_core import (
 )
 
 
-def _compute_signal_mask(
-    L: np.ndarray, shadow_auth: float
-) -> np.ndarray:
+def _compute_signal_mask(L: np.ndarray, shadow_auth: float) -> np.ndarray:
     """
     Compute signal mask using MAD-based adaptive thresholding.
 
@@ -56,8 +54,9 @@ def _compute_signal_mask(
     # Signal mask: smooth ramp from noise floor
     signal_mask = np.clip((L - noise_floor) / (2.0 * sigma + 1e-10), 0, 1)
 
-    # Smooth the mask
-    signal_mask = gaussian_filter(signal_mask, sigma=1.5)
+    # Smooth the mask with 3x3 box blur (reference: cv2.blur(mask, (3, 3)))
+    kernel = np.ones((3, 3), dtype=np.float64) / 9.0
+    signal_mask = convolve(signal_mask, kernel, mode="reflect")
 
     return signal_mask.astype(np.float64)
 
@@ -95,23 +94,24 @@ def _compute_star_mask_energy(
     threshold = med_energy + 4.0 * sigma_energy
 
     # Star map with smooth ramp
-    star_map = np.clip(
-        (energy - threshold) / (2.0 * sigma_energy + 1e-10), 0, 1
-    )
+    star_map = np.clip((energy - threshold) / (2.0 * sigma_energy + 1e-10), 0, 1)
 
-    # Smooth and clip for clean edges
-    star_map = gaussian_filter(star_map, sigma=2.5)
+    # Smooth and clip for clean edges (reference: cv2.blur with (5, 5))
+    kernel_5x5 = np.ones((5, 5), dtype=np.float64) / 25.0
+    star_map = convolve(star_map, kernel_5x5, mode="reflect")
     star_map = np.clip(star_map * 1.5, 0, 1)
-    star_map = gaussian_filter(star_map, sigma=2.5)
+    star_map = convolve(star_map, kernel_5x5, mode="reflect")
 
     # Protection mask for texture (where 1 = full enhancement allowed)
     star_protection_tex = 1.0 - (star_map * strength)
 
     # Tighter protection for structure (squared mask)
-    star_map_structure = np.clip(star_map ** 2, 0, 1)
+    star_map_structure = np.clip(star_map**2, 0, 1)
     star_protection_str = 1.0 - (star_map_structure * strength)
 
-    return star_protection_tex.astype(np.float64), star_protection_str.astype(np.float64)
+    return star_protection_tex.astype(np.float64), star_protection_str.astype(
+        np.float64
+    )
 
 
 def enhance_details(
