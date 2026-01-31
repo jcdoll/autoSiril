@@ -1,4 +1,4 @@
-# Siril Scripts
+# autoSiril
 
 Automation tools for astrophotography image processing.
 
