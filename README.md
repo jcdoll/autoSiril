@@ -9,8 +9,20 @@ Automation tools for astrophotography image processing.
 Automated Siril processing pipeline with JSON job file configuration.
 
 ```bash
-# Run a processing job
+# Run a single job
 uv run python run_job.py jobs/M42.json
+
+# Run multiple jobs
+uv run python run_job.py jobs/M42.json jobs/M31.json
+
+# Run all jobs in a directory
+uv run python run_job.py jobs/
+
+# Run jobs matching a pattern
+uv run python run_job.py jobs/ --pattern "SH2*"
+
+# Continue processing after failures
+uv run python run_job.py jobs/ --continue-on-error
 ```
 
 Features:

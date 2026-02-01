@@ -3,11 +3,14 @@
 CLI entry point for Siril job processing.
 
 Usage:
-    python run_job.py jobs/M42_Jan2024.json
-    python run_job.py jobs/M42_Jan2024.json --validate
-    python run_job.py jobs/M42_Jan2024.json --dry-run
-    python run_job.py jobs/M42_Jan2024.json --stage preprocess
-    python run_job.py jobs/M42_Jan2024.json --seq-stats
+    python run_job.py jobs/M42.json                # Single job
+    python run_job.py jobs/M42.json jobs/M31.json  # Multiple jobs
+    python run_job.py jobs/                        # All jobs in directory
+    python run_job.py jobs/ --pattern "SH2*"       # Filtered by pattern
+    python run_job.py jobs/M42.json --validate     # Validate only
+    python run_job.py jobs/M42.json --dry-run      # Show what would happen
+    python run_job.py jobs/M42.json --stage preprocess
+    python run_job.py jobs/M42.json --seq-stats    # View registration stats
 """
 
 import argparse
@@ -50,6 +53,49 @@ from siril_job_runner.sequence_analysis import (
     format_stats_log,
     parse_sequence_file,
 )
+
+
+def resolve_jobs(paths: list[Path], pattern: str | None) -> list[Path]:
+    """
+    Expand directories and apply pattern filter.
+
+    Args:
+        paths: List of job files or directories
+        pattern: Glob pattern to filter jobs (e.g., "SH2*")
+
+    Returns:
+        Sorted list of job file paths
+    """
+    jobs = []
+    for p in paths:
+        if p.is_dir():
+            glob_pattern = f"{pattern}.json" if pattern else "*.json"
+            jobs.extend(p.glob(glob_pattern))
+        elif pattern is None or p.match(f"*{pattern}*"):
+            jobs.append(p)
+    return sorted(set(jobs))
+
+
+def print_summary(results: list[tuple[Path, str, str | None]]) -> None:
+    """Print summary table of job results."""
+    if len(results) <= 1:
+        return
+
+    success = sum(1 for _, status, _ in results if status == "success")
+    failed = sum(1 for _, status, _ in results if status == "failed")
+    skipped = sum(1 for _, status, _ in results if status == "skipped")
+
+    print()
+    print("=" * 60)
+    print(f"BATCH SUMMARY: {success} success, {failed} failed, {skipped} skipped")
+    print("-" * 60)
+    for path, status, err in results:
+        status_str = status.upper()
+        if err:
+            print(f"  {path.stem}: {status_str} - {err}")
+        else:
+            print(f"  {path.stem}: {status_str}")
+    print("=" * 60)
 
 
 def print_seq_stats(job_path: Path, base_path: Path) -> None:
@@ -193,7 +239,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python run_job.py jobs/M42.json              # Run full pipeline
+    python run_job.py jobs/M42.json              # Run single job
+    python run_job.py jobs/M42.json jobs/M31.json # Run multiple jobs
+    python run_job.py jobs/                      # Run all jobs in directory
+    python run_job.py jobs/ --pattern "SH2*"    # Run jobs matching pattern
     python run_job.py jobs/M42.json --validate   # Validate only
     python run_job.py jobs/M42.json --dry-run    # Show what would happen
     python run_job.py jobs/M42.json --stage calibrate
@@ -202,9 +251,22 @@ Examples:
     )
 
     parser.add_argument(
-        "job_file",
+        "job_paths",
         type=Path,
-        help="Path to job JSON file",
+        nargs="+",
+        help="Job file(s) or directory containing job files",
+    )
+
+    parser.add_argument(
+        "--pattern",
+        type=str,
+        help="Filter jobs by glob pattern (e.g., 'SH2*', 'M*')",
+    )
+
+    parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Continue processing remaining jobs after a failure",
     )
 
     parser.add_argument(
@@ -252,29 +314,40 @@ Examples:
 
     args = parser.parse_args()
 
+    # Resolve job files from paths
+    job_files = resolve_jobs(args.job_paths, args.pattern)
+    if not job_files:
+        print("ERROR: No job files found")
+        if args.pattern:
+            print(f"  Pattern: {args.pattern}")
+        print(f"  Paths: {[str(p) for p in args.job_paths]}")
+        sys.exit(1)
+
+    is_batch = len(job_files) > 1
+    if is_batch:
+        print(f"Found {len(job_files)} jobs to process")
+        for jf in job_files:
+            print(f"  - {jf.stem}")
+        print()
+
     # Set up logging to file if requested
     tee = None
     if args.log:
         logs_dir = Path(__file__).parent / "logs"
         logs_dir.mkdir(exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        job_name = args.job_file.stem
-        log_path = logs_dir / f"{job_name}_{timestamp}.log"
+        log_name = "batch" if is_batch else job_files[0].stem
+        log_path = logs_dir / f"{log_name}_{timestamp}.log"
         tee = TeeWriter(log_path)
         sys.stdout = tee
         sys.stderr = tee
         print(f"Logging to: {log_path}")
 
-    # Validate job file exists
-    if not args.job_file.exists():
-        print(f"ERROR: Job file not found: {args.job_file}")
-        sys.exit(1)
-
-    # Quick validation check
-    is_valid, error = validate_job_file(args.job_file)
-    if not is_valid:
-        print(f"ERROR: Invalid job file: {error}")
-        sys.exit(1)
+    # Validate all job files exist
+    for job_file in job_files:
+        if not job_file.exists():
+            print(f"ERROR: Job file not found: {job_file}")
+            sys.exit(1)
 
     # Determine base path
     repo_root = Path(__file__).parent
@@ -292,12 +365,15 @@ Examples:
             print("  2. Create settings.json with base_path (copy from settings.template.json)")
             sys.exit(1)
 
-    # Handle --seq-stats (no Siril needed)
+    # Handle --seq-stats (no Siril needed, only supports single job)
     if args.seq_stats:
-        print_seq_stats(args.job_file, base_path)
+        if is_batch:
+            print("ERROR: --seq-stats only supports single job")
+            sys.exit(1)
+        print_seq_stats(job_files[0], base_path)
         sys.exit(0)
 
-    # Get Siril interface
+    # Get Siril interface (shared across all jobs)
     siril = None
     siril_raw = None
     if not args.validate and not args.dry_run:
@@ -306,79 +382,113 @@ Examples:
             print("Cannot run without Siril connection. Use --validate or --dry-run.")
             sys.exit(1)
 
-    # Create job runner
+    # Process jobs
+    results: list[tuple[Path, str, str | None]] = []
+
     try:
-        runner = JobRunner(
-            job_path=args.job_file,
-            base_path=base_path,
-            siril=siril,
-            dry_run=args.dry_run,
-            force=args.force,
-        )
-
-        if args.validate:
-            # Validation only
-            result = runner.validate()
-            print()
-            if result.valid:
-                print("Validation PASSED")
-                print(f"  {len(result.frames)} light frames found")
-                print(f"  {len(result.buildable_calibration)} calibration masters to build")
-            else:
-                print("Validation FAILED")
-                print(f"  Missing: {', '.join(result.missing_calibration)}")
-            runner.close()
-            sys.exit(0 if result.valid else 1)
-
-        elif args.stage:
-            # Run specific stage
-            validation = runner.validate()
-            if not validation.valid:
-                print(f"ERROR: {validation.message}")
-                runner.close()
-                sys.exit(1)
-
-            if args.stage == "calibrate":
-                runner.run_calibration(validation)
-            elif args.stage == "preprocess":
-                cal_paths = runner.run_calibration(validation)
-                runner.run_preprocessing(cal_paths)
-            elif args.stage == "compose":
-                # Run composition (discovers stacks from output_dir/stacks/)
-                result = runner.run_composition()
-                if result:
-                    print()
-                    print("Outputs:")
-                    print(f"  Linear: {result.linear_path}")
-                    if result.linear_pcc_path:
-                        print(f"  Linear (PCC): {result.linear_pcc_path}")
-                    print(f"  Auto FIT: {result.auto_fit}")
-                    print(f"  Auto TIF: {result.auto_tif}")
-                    print(f"  Auto JPG: {result.auto_jpg}")
-                    print(f"  Stacks: {result.stacks_dir}")
-
-            runner.close()
-
-        else:
-            # Full pipeline
-            result = runner.run()
-            if result:
+        for i, job_file in enumerate(job_files):
+            if is_batch:
                 print()
-                print("Outputs:")
-                print(f"  Linear: {result.linear_path}")
-                if result.linear_pcc_path:
-                    print(f"  Linear (PCC): {result.linear_pcc_path}")
-                print(f"  Auto FIT: {result.auto_fit}")
-                print(f"  Auto TIF: {result.auto_tif}")
-                print(f"  Auto JPG: {result.auto_jpg}")
-                print(f"  Stacks: {result.stacks_dir}")
-            runner.close()
+                print("=" * 60)
+                print(f"[{i + 1}/{len(job_files)}] Processing: {job_file.stem}")
+                print("=" * 60)
 
-    except Exception as e:
-        print(f"ERROR: {e}")
-        if 'runner' in locals():
-            runner.close()
-        sys.exit(1)
+            # Quick validation check
+            is_valid, error = validate_job_file(job_file)
+            if not is_valid:
+                print(f"ERROR: Invalid job file: {error}")
+                results.append((job_file, "failed", f"Invalid: {error}"))
+                if not args.continue_on_error:
+                    break
+                continue
+
+            runner = None
+            try:
+                runner = JobRunner(
+                    job_path=job_file,
+                    base_path=base_path,
+                    siril=siril,
+                    dry_run=args.dry_run,
+                    force=args.force,
+                )
+
+                if args.validate:
+                    # Validation only
+                    result = runner.validate()
+                    print()
+                    if result.valid:
+                        print("Validation PASSED")
+                        print(f"  {len(result.frames)} light frames found")
+                        print(f"  {len(result.buildable_calibration)} calibration masters to build")
+                        results.append((job_file, "success", None))
+                    else:
+                        print("Validation FAILED")
+                        print(f"  Missing: {', '.join(result.missing_calibration)}")
+                        results.append((job_file, "failed", "Validation failed"))
+                        if not args.continue_on_error:
+                            break
+
+                elif args.stage:
+                    # Run specific stage
+                    validation = runner.validate()
+                    if not validation.valid:
+                        print(f"ERROR: {validation.message}")
+                        results.append((job_file, "failed", validation.message))
+                        if not args.continue_on_error:
+                            break
+                        continue
+
+                    if args.stage == "calibrate":
+                        runner.run_calibration(validation)
+                    elif args.stage == "preprocess":
+                        runner.run_calibration(validation)
+                        runner.run_preprocessing(validation.frames)
+                    elif args.stage == "compose":
+                        result = runner.run_composition()
+                        if result:
+                            print()
+                            print("Outputs:")
+                            print(f"  Linear: {result.linear_path}")
+                            if result.linear_pcc_path:
+                                print(f"  Linear (PCC): {result.linear_pcc_path}")
+                            print(f"  Auto FIT: {result.auto_fit}")
+                            print(f"  Auto TIF: {result.auto_tif}")
+                            print(f"  Auto JPG: {result.auto_jpg}")
+                            print(f"  Stacks: {result.stacks_dir}")
+
+                    results.append((job_file, "success", None))
+
+                else:
+                    # Full pipeline
+                    result = runner.run()
+                    if result:
+                        print()
+                        print("Outputs:")
+                        print(f"  Linear: {result.linear_path}")
+                        if result.linear_pcc_path:
+                            print(f"  Linear (PCC): {result.linear_pcc_path}")
+                        print(f"  Auto FIT: {result.auto_fit}")
+                        print(f"  Auto TIF: {result.auto_tif}")
+                        print(f"  Auto JPG: {result.auto_jpg}")
+                        print(f"  Stacks: {result.stacks_dir}")
+                    results.append((job_file, "success", None))
+
+            except Exception as e:
+                print(f"ERROR: {e}")
+                results.append((job_file, "failed", str(e)))
+                if not args.continue_on_error:
+                    break
+
+            finally:
+                if runner is not None:
+                    runner.close()
+
+        # Print batch summary
+        print_summary(results)
+
+        # Exit with error if any jobs failed
+        if any(status == "failed" for _, status, _ in results):
+            sys.exit(1)
 
     finally:
         # Close Siril connection (use raw pysiril object)
