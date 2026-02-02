@@ -150,7 +150,7 @@ def test_config_defaults():
     # Stretch defaults
     assert DEFAULTS.stretch_method == "veralux"
     assert DEFAULTS.stretch_compare is True
-    assert DEFAULTS.autostretch_targetbg == 0.05
+    assert DEFAULTS.autostretch_targetbg == 0.10
     assert DEFAULTS.veralux_target_median == 0.10
     assert DEFAULTS.veralux_b == 6.0
     assert DEFAULTS.veralux_log_d_min == 0.0

@@ -23,6 +23,7 @@
   "options": {
     "dark_temp_override": -10,
     "palette": "SHO",
-    "autostretch_targetbg": 0.05
+    "autostretch_targetbg": 0.05,
+    "autostretch_mtf_mid": 0.3
   }
 }

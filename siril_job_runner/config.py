@@ -42,12 +42,10 @@ class Config:
     # Autostretch parameters
     autostretch_linked: bool = True  # False for narrowband
     autostretch_shadowclip: float = -2.8  # Shadows clipping in sigma from peak
-    autostretch_targetbg: float = 0.05  # Target background brightness (lower=darker)
+    autostretch_targetbg: float = 0.10  # Target background brightness (match veralux)
     # MTF fine-tuning (applied after autostretch)
-    autostretch_mtf_low: float = 0.2  # Black point [0-1]
-    autostretch_mtf_mid: float = (
-        0.5  # Midtone [0-1], higher = darker/compress highlights
-    )
+    autostretch_mtf_low: float = 0.0  # Black point [0-1]
+    autostretch_mtf_mid: float = 0.6  # Midtone [0-1], higher = darker/compress highlights
     autostretch_mtf_high: float = 1.0  # White point [0-1]
 
     # VeraLux HyperMetric Stretch parameters
@@ -188,7 +186,7 @@ class Config:
         "H"  # Match other channels to this (typically H)
     )
     narrowband_balance_low: float = 0.0  # Ignore pixels below this (clip artifacts)
-    narrowband_balance_high: float = 0.5  # Ignore pixels above this (nebula signal)
+    narrowband_balance_high: float = 0.20  # Ignore pixels above this (stretched bg ~0.10)
 
     # Deconvolution (sharpening via Richardson-Lucy)
     # For LRGB: runs on L stack and RGB composite
