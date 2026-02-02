@@ -47,15 +47,13 @@ def apply_stretch(
             targetbg=cfg.autostretch_targetbg,
         )
         if success:
-            log_fn(
-                f"  MTF: low={cfg.autostretch_mtf_low}, "
-                f"mid={cfg.autostretch_mtf_mid}, high={cfg.autostretch_mtf_high}"
-            )
-            siril.mtf(
-                cfg.autostretch_mtf_low,
-                cfg.autostretch_mtf_mid,
-                cfg.autostretch_mtf_high,
-            )
+            # Apply second MTF for additional stretch control
+            # mtf_mid < 0.5 brightens, > 0.5 darkens, 0.5 is neutral
+            low, mid, high = cfg.autostretch_mtf_low, cfg.autostretch_mtf_mid, cfg.autostretch_mtf_high
+            is_neutral = (low == 0.0 and mid == 0.5 and high == 1.0)
+            if not is_neutral:
+                log_fn(f"  MTF: low={low}, mid={mid}, high={high}")
+                siril.mtf(low, mid, high)
         return success
     elif method == "veralux":
         log_fn(

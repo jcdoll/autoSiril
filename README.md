@@ -5,12 +5,12 @@ Automation tools for astrophotography image processing.
 ## Sample Output
 
 <p align="center">
-  <a href="images/M31.jpg"><img src="images/M31.jpg" width="300" alt="M31"></a>
-  <a href="images/M33.jpg"><img src="images/M33.jpg" width="300" alt="M33"></a>
+  <a href="images/M31.jpg"><img src="images/M31.jpg" width="45%" alt="M31"></a>
+  <a href="images/M33.jpg"><img src="images/M33.jpg" width="45%" alt="M33"></a>
 </p>
 <p align="center">
-  <a href="images/M45.jpg"><img src="images/M45.jpg" width="300" alt="M45"></a>
-  <a href="images/SH2-190.jpg"><img src="images/SH2-190.jpg" width="300" alt="SH2-190"></a>
+  <a href="images/M45.jpg"><img src="images/M45.jpg" width="45%" alt="M45"></a>
+  <a href="images/SH2-190.jpg"><img src="images/SH2-190.jpg" width="45%" alt="SH2-190"></a>
 </p>
 
 ## Projects
