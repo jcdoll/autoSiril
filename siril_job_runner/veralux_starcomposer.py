@@ -7,6 +7,11 @@ https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_StarComp
 Blends a starless image with a star mask using hyperbolic stretch for star
 intensity control, hybrid scalar/vector engine for color grip, and
 screen/linear blend modes.
+
+Ported from standalone VeraLux reference script. Algorithmic functions are
+intentionally self-contained to allow independent validation against the
+upstream source. Shared math utilities (color space, wavelets) live in
+veralux_colorspace.py and veralux_wavelet.py.
 """
 
 from enum import Enum

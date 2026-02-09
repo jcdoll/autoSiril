@@ -6,6 +6,11 @@ https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Revela.p
 
 Uses a trous wavelet transform (ATWT) to enhance fine details (texture)
 and medium-scale structures while protecting shadows and stars.
+
+Ported from standalone VeraLux reference script. Algorithmic functions are
+intentionally self-contained to allow independent validation against the
+upstream source. Shared math utilities (color space, wavelets) live in
+veralux_colorspace.py and veralux_wavelet.py.
 """
 
 from pathlib import Path

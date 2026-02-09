@@ -6,6 +6,11 @@ https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Vectra.p
 
 Applies per-vector (hue-based) saturation and hue control in LCH color space
 with shadow protection, star protection, and chroma stability gating.
+
+Ported from standalone VeraLux reference script. Algorithmic functions are
+intentionally self-contained to allow independent validation against the
+upstream source. Shared math utilities (color space, wavelets) live in
+veralux_colorspace.py and veralux_wavelet.py.
 """
 
 from pathlib import Path

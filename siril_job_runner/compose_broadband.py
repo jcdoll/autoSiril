@@ -64,6 +64,48 @@ LRGB_CHANNEL_INDEX = {"B": "00001", "G": "00002", "L": "00003", "R": "00004"}
 RGB_CHANNEL_INDEX = {"B": "00001", "G": "00002", "R": "00003"}
 
 
+def _apply_post_stretch(
+    siril: "SirilInterface",
+    image_name: str,
+    working_dir: Path,
+    config: Config,
+    log_fn: callable,
+) -> None:
+    """
+    Apply post-stretch processing to a broadband image.
+
+    This is the standard pipeline after any stretch method (autostretch or veralux).
+    The stretch method only affects tone mapping; post-stretch processing is always
+    the same regardless of which stretch was used.
+
+    Steps:
+        1. Color cast removal (SCNR green/magenta)
+        2. Background color neutralization (linear match G,B to R)
+        3. Saturation adjustment
+        4. VeraLux enhancements (Silentium denoise, Revela detail, Vectra saturation)
+    """
+    if config.color_removal_mode != "none":
+        siril.load(image_name)
+        apply_color_removal(siril, config, log_fn)
+        siril.save(image_name)
+
+    if config.broadband_neutralization:
+        neutralize_rgb_background(
+            siril,
+            image_name,
+            config,
+            log_fn,
+            low=config.broadband_neutralization_low,
+            high=config.broadband_neutralization_high,
+        )
+
+    siril.load(image_name)
+    apply_saturation(siril, config)
+    siril.save(image_name)
+
+    _apply_veralux_processing(siril, image_name, working_dir, config, log_fn)
+
+
 def _apply_veralux_processing(
     siril: "SirilInterface",
     source_name: str,
@@ -171,30 +213,7 @@ def _stretch_and_combine_lrgb(
     # Combine LRGB
     siril.rgbcomp(lum=l_stretched, rgb=rgb_stretched, out=lrgb_combined)
 
-    # Color removal (SCNR)
-    if config.color_removal_mode != "none":
-        siril.load(lrgb_combined)
-        apply_color_removal(siril, config, log_fn)
-        siril.save(lrgb_combined)
-
-    # Background color neutralization
-    if config.broadband_neutralization:
-        neutralize_rgb_background(
-            siril,
-            lrgb_combined,
-            config,
-            log_fn,
-            low=config.broadband_neutralization_low,
-            high=config.broadband_neutralization_high,
-        )
-
-    # Apply saturation
-    siril.load(lrgb_combined)
-    apply_saturation(siril, config)
-    siril.save(lrgb_combined)
-
-    # Apply post-processing enhancements (Silentium/Revela/Vectra) if enabled
-    _apply_veralux_processing(siril, lrgb_combined, working_dir, config, log_fn)
+    _apply_post_stretch(siril, lrgb_combined, working_dir, config, log_fn)
 
     return lrgb_combined
 
@@ -694,23 +713,7 @@ def compose_rgb(
     siril.load(rgb_source)
     apply_stretch(siril, "autostretch", working_dir / f"{rgb_source}.fit", cfg, log_fn)
     siril.save("rgb_auto")
-    if cfg.color_removal_mode != "none":
-        siril.load("rgb_auto")
-        apply_color_removal(siril, cfg, log_fn)
-        siril.save("rgb_auto")
-    if cfg.broadband_neutralization:
-        neutralize_rgb_background(
-            siril,
-            "rgb_auto",
-            cfg,
-            log_fn,
-            low=cfg.broadband_neutralization_low,
-            high=cfg.broadband_neutralization_high,
-        )
-    siril.load("rgb_auto")
-    apply_saturation(siril, cfg)
-    siril.save("rgb_auto")
-    _apply_veralux_processing(siril, "rgb_auto", working_dir, cfg, log_fn)
+    _apply_post_stretch(siril, "rgb_auto", working_dir, cfg, log_fn)
     _save_outputs(siril, "rgb_auto", output_dir, "rgb_autostretch", log_fn, cfg)
 
     # --- VERALUX VERSION ---
@@ -725,23 +728,7 @@ def compose_rgb(
         siril.load(rgb_source)
         siril.autostretch()
     siril.save("rgb_veralux")
-    if cfg.color_removal_mode != "none":
-        siril.load("rgb_veralux")
-        apply_color_removal(siril, cfg, log_fn)
-        siril.save("rgb_veralux")
-    if cfg.broadband_neutralization:
-        neutralize_rgb_background(
-            siril,
-            "rgb_veralux",
-            cfg,
-            log_fn,
-            low=cfg.broadband_neutralization_low,
-            high=cfg.broadband_neutralization_high,
-        )
-    siril.load("rgb_veralux")
-    apply_saturation(siril, cfg)
-    siril.save("rgb_veralux")
-    _apply_veralux_processing(siril, "rgb_veralux", working_dir, cfg, log_fn)
+    _apply_post_stretch(siril, "rgb_veralux", working_dir, cfg, log_fn)
     _save_outputs(siril, "rgb_veralux", output_dir, "rgb_veralux", log_fn, cfg)
 
     # =========================================================================
@@ -786,22 +773,7 @@ def compose_rgb(
         siril.load("rgb_starless")
         siril.autostretch()
         siril.save("rgb_auto_starless")
-        if cfg.color_removal_mode != "none":
-            siril.load("rgb_auto_starless")
-            apply_color_removal(siril, cfg, log_fn)
-            siril.save("rgb_auto_starless")
-        if cfg.broadband_neutralization:
-            neutralize_rgb_background(
-                siril,
-                "rgb_auto_starless",
-                cfg,
-                log_fn,
-                low=cfg.broadband_neutralization_low,
-                high=cfg.broadband_neutralization_high,
-            )
-        siril.load("rgb_auto_starless")
-        apply_saturation(siril, cfg)
-        siril.save("rgb_auto_starless")
+        _apply_post_stretch(siril, "rgb_auto_starless", working_dir, cfg, log_fn)
         _save_outputs(
             siril,
             "rgb_auto_starless",
@@ -822,25 +794,7 @@ def compose_rgb(
             siril.load("rgb_starless")
             siril.autostretch()
         siril.save("rgb_veralux_starless")
-        if cfg.color_removal_mode != "none":
-            siril.load("rgb_veralux_starless")
-            apply_color_removal(siril, cfg, log_fn)
-            siril.save("rgb_veralux_starless")
-        if cfg.broadband_neutralization:
-            neutralize_rgb_background(
-                siril,
-                "rgb_veralux_starless",
-                cfg,
-                log_fn,
-                low=cfg.broadband_neutralization_low,
-                high=cfg.broadband_neutralization_high,
-            )
-        siril.load("rgb_veralux_starless")
-        apply_saturation(siril, cfg)
-        siril.save("rgb_veralux_starless")
-        _apply_veralux_processing(
-            siril, "rgb_veralux_starless", working_dir, cfg, log_fn
-        )
+        _apply_post_stretch(siril, "rgb_veralux_starless", working_dir, cfg, log_fn)
         _save_outputs(
             siril,
             "rgb_veralux_starless",

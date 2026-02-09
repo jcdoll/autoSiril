@@ -5,6 +5,11 @@ Based on VeraLux by Riccardo Paterniti.
 https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_HyperMetric_Stretch.py
 
 This module implements the core stretch algorithm matching the reference exactly.
+
+Ported from standalone VeraLux reference script. Algorithmic functions are
+intentionally self-contained to allow independent validation against the
+upstream source. Shared math utilities (color space, wavelets) live in
+veralux_colorspace.py and veralux_wavelet.py.
 """
 
 import math
