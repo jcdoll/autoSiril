@@ -13,38 +13,6 @@ from typing import Any
 import numpy as np
 from astropy.io import fits
 
-# Re-export color space conversions for backwards compatibility
-from .veralux_colorspace import (
-    lab_to_lch,
-    lab_to_rgb,
-    lch_to_lab,
-    rgb_to_lab,
-    rgb_to_xyz,
-    xyz_to_rgb,
-)
-
-# Re-export wavelet functions for backwards compatibility
-from .veralux_wavelet import atrous_decomposition, atrous_reconstruction
-
-__all__ = [
-    # Color space
-    "rgb_to_xyz",
-    "xyz_to_rgb",
-    "rgb_to_lab",
-    "lab_to_rgb",
-    "lab_to_lch",
-    "lch_to_lab",
-    # Wavelets
-    "atrous_decomposition",
-    "atrous_reconstruction",
-    # Statistics
-    "mad_sigma",
-    "compute_signal_mask",
-    # I/O
-    "load_fits_data",
-    "save_fits_data",
-]
-
 
 def mad_sigma(data: np.ndarray) -> float:
     """

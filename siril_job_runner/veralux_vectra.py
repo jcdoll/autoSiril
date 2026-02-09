@@ -17,7 +17,7 @@ from scipy.ndimage import convolve
 
 from siril_job_runner.config import Config
 from siril_job_runner.protocols import SirilInterface
-from siril_job_runner.veralux_core import (
+from siril_job_runner.veralux_colorspace import (
     lab_to_lch,
     lab_to_rgb,
     lch_to_lab,

@@ -17,14 +17,6 @@ from .preprocessing_utils import group_frames_by_filter_exposure, link_or_copy
 from .protocols import SirilInterface
 from .sequence_analysis import format_stats_log, parse_sequence_file
 
-# Re-export for backwards compatibility
-__all__ = [
-    "link_or_copy",
-    "group_frames_by_filter_exposure",
-    "Preprocessor",
-    "preprocess_with_exposure_groups",
-]
-
 
 class Preprocessor:
     """Handles preprocessing of light frames."""

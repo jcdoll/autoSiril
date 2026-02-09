@@ -17,12 +17,8 @@ from scipy.ndimage import convolve
 
 from siril_job_runner.config import Config
 from siril_job_runner.protocols import SirilInterface
-from siril_job_runner.veralux_core import (
-    atrous_decomposition,
-    atrous_reconstruction,
-    lab_to_rgb,
-    rgb_to_lab,
-)
+from siril_job_runner.veralux_colorspace import lab_to_rgb, rgb_to_lab
+from siril_job_runner.veralux_wavelet import atrous_decomposition, atrous_reconstruction
 
 
 def _compute_signal_mask(L: np.ndarray, shadow_auth: float) -> np.ndarray:

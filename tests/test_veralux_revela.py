@@ -7,7 +7,7 @@ from siril_job_runner.veralux_revela import (
     _compute_star_mask_energy,
     enhance_details,
 )
-from siril_job_runner.veralux_core import atrous_decomposition
+from siril_job_runner.veralux_wavelet import atrous_decomposition
 
 
 class TestSignalMask:

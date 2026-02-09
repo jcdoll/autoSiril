@@ -7,7 +7,7 @@ Users can override ANY value via job JSON files or settings.json.
 Override precedence: DEFAULTS <- settings.json <- job.json options
 """
 
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import dataclass, fields, replace
 from typing import Optional
 
 
@@ -45,7 +45,9 @@ class Config:
     autostretch_targetbg: float = 0.10  # Target background brightness (match veralux)
     # MTF fine-tuning (applied after autostretch)
     autostretch_mtf_low: float = 0.0  # Black point [0-1]
-    autostretch_mtf_mid: float = 0.6  # Midtone [0-1], higher = darker/compress highlights
+    autostretch_mtf_mid: float = (
+        0.6  # Midtone [0-1], higher = darker/compress highlights
+    )
     autostretch_mtf_high: float = 1.0  # White point [0-1]
 
     # VeraLux HyperMetric Stretch parameters
@@ -186,7 +188,9 @@ class Config:
         "H"  # Match other channels to this (typically H)
     )
     narrowband_balance_low: float = 0.0  # Ignore pixels below this (clip artifacts)
-    narrowband_balance_high: float = 0.20  # Ignore pixels above this (stretched bg ~0.10)
+    narrowband_balance_high: float = (
+        0.20  # Ignore pixels above this (stretched bg ~0.10)
+    )
 
     # Deconvolution (sharpening via Richardson-Lucy)
     # For LRGB: runs on L stack and RGB composite
@@ -344,8 +348,3 @@ def merge_overrides(*override_dicts: dict) -> dict:
         if d:
             result.update(d)
     return result
-
-
-def config_to_dict(config: Config) -> dict:
-    """Convert Config to dict (for serialization)."""
-    return asdict(config)
