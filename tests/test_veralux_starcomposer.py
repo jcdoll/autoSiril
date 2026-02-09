@@ -167,7 +167,9 @@ class TestHybridEngine:
         result_no_shadow = _apply_color_grip(scalar, vector, grip=1.0, shadow_conv=0.0)
 
         # With shadow conv, dark areas should lean toward scalar
-        result_with_shadow = _apply_color_grip(scalar, vector, grip=1.0, shadow_conv=2.0)
+        result_with_shadow = _apply_color_grip(
+            scalar, vector, grip=1.0, shadow_conv=2.0
+        )
 
         # Result with shadow should be closer to scalar than result without
         diff_no_shadow = np.abs(result_no_shadow - scalar).mean()
@@ -213,9 +215,7 @@ class TestComposeStars:
         """Screen blend mode should be applied."""
         starless = np.ones((3, 32, 32)) * 0.3
         starmask = np.ones((3, 32, 32)) * 0.2
-        result, stats = compose_stars(
-            starless, starmask, blend_mode=BlendMode.SCREEN
-        )
+        result, stats = compose_stars(starless, starmask, blend_mode=BlendMode.SCREEN)
         assert stats["blend_mode"] == "screen"
         assert result[0, 16, 16] > starless[0, 16, 16]
 

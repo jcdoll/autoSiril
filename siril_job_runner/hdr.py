@@ -233,29 +233,3 @@ class HDRBlender:
                 results[channel] = stacks[0].path
 
         return results
-
-
-def blend_hdr_stacks(
-    siril: SirilInterface,
-    stacks: dict[str, list[StackInfo]],
-    work_dir: Path,
-    output_dir: Path,
-    config: Config = DEFAULTS,
-    logger: Optional[JobLogger] = None,
-) -> dict[str, Path]:
-    """
-    Convenience function to blend HDR stacks.
-
-    Args:
-        siril: Siril interface
-        stacks: Dict from discover_stacks() - channel name to list of StackInfo
-        work_dir: Working directory for intermediate files
-        output_dir: Output directory for final HDR stacks
-        config: Configuration with HDR thresholds
-        logger: Optional logger
-
-    Returns:
-        Dict mapping channel name to HDR-blended (or single) stack path
-    """
-    blender = HDRBlender(siril, work_dir, config, logger)
-    return blender.blend_all_channels(stacks, output_dir)

@@ -5,6 +5,11 @@ Based on VeraLux by Riccardo Paterniti.
 https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_HyperMetric_Stretch.py
 
 This module implements the core stretch algorithm matching the reference exactly.
+
+Ported from standalone VeraLux reference script. Algorithmic functions are
+intentionally self-contained to allow independent validation against the
+upstream source. Shared math utilities (color space, wavelets) live in
+veralux_colorspace.py and veralux_wavelet.py.
 """
 
 import math
@@ -535,7 +540,9 @@ def _adaptive_output_scaling(
         if is_rgb:
             # Linked MTF: apply to luminance, scale channels proportionally
             # This preserves color ratios (matches reference documentation "Linked MTF")
-            L_before = r_weight * result[0] + g_weight * result[1] + b_weight * result[2]
+            L_before = (
+                r_weight * result[0] + g_weight * result[1] + b_weight * result[2]
+            )
             L_after = _apply_mtf(L_before, m)
             scale = L_after / (L_before + 1e-9)
             for i in range(3):

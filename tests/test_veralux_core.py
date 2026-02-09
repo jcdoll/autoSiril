@@ -1,17 +1,15 @@
-"""Tests for veralux_core module."""
+"""Tests for veralux_core, veralux_colorspace, and veralux_wavelet modules."""
 
 import numpy as np
 
-from siril_job_runner.veralux_core import (
-    atrous_decomposition,
-    atrous_reconstruction,
-    compute_signal_mask,
+from siril_job_runner.veralux_colorspace import (
     lab_to_lch,
     lab_to_rgb,
     lch_to_lab,
-    mad_sigma,
     rgb_to_lab,
 )
+from siril_job_runner.veralux_core import compute_signal_mask, mad_sigma
+from siril_job_runner.veralux_wavelet import atrous_decomposition, atrous_reconstruction
 
 
 class TestColorSpaceConversions:

@@ -8,7 +8,7 @@ Used by both broadband and narrowband composition modules.
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
-from .config import Config
+from .config import Config, StretchMethod
 
 if TYPE_CHECKING:
     from .protocols import SirilInterface
@@ -38,7 +38,7 @@ def apply_stretch(
 
     cfg = config
 
-    if method == "autostretch":
+    if method == StretchMethod.AUTOSTRETCH:
         mode = "linked" if cfg.autostretch_linked else "unlinked"
         log_fn(f"Stretching ({method}, {mode}, targetbg={cfg.autostretch_targetbg})...")
         success = siril.autostretch(
@@ -49,13 +49,17 @@ def apply_stretch(
         if success:
             # Apply second MTF for additional stretch control
             # mtf_mid < 0.5 brightens, > 0.5 darkens, 0.5 is neutral
-            low, mid, high = cfg.autostretch_mtf_low, cfg.autostretch_mtf_mid, cfg.autostretch_mtf_high
-            is_neutral = (low == 0.0 and mid == 0.5 and high == 1.0)
+            low, mid, high = (
+                cfg.autostretch_mtf_low,
+                cfg.autostretch_mtf_mid,
+                cfg.autostretch_mtf_high,
+            )
+            is_neutral = low == 0.0 and mid == 0.5 and high == 1.0
             if not is_neutral:
                 log_fn(f"  MTF: low={low}, mid={mid}, high={high}")
                 siril.mtf(low, mid, high)
         return success
-    elif method == "veralux":
+    elif method == StretchMethod.VERALUX:
         log_fn(
             f"Stretching ({method}, target_median={cfg.veralux_target_median}, "
             f"b={cfg.veralux_b})..."
@@ -164,111 +168,3 @@ def save_all_formats(
     log_fn(f"Saved: {basename}.fit, {basename}.tif, {basename}.jpg")
 
     return {"fit": fit_path, "tif": tif_path, "jpg": jpg_path}
-
-
-def finalize_image(
-    siril: "SirilInterface",
-    output_dir: Path,
-    basename: str,
-    config: Config,
-    log_fn: Callable[[str], None],
-    working_dir: Optional[Path] = None,
-) -> dict[str, Path]:
-    """
-    Finalize image: apply saturation, enhancements, and save all formats.
-
-    Args:
-        siril: Siril interface
-        output_dir: Directory for final output files
-        basename: Base filename (without extension)
-        config: Configuration
-        log_fn: Logging function
-        working_dir: Working directory for temp files (defaults to output_dir)
-
-    Returns:
-        Dict with 'fit', 'tif', 'jpg' paths
-    """
-    if working_dir is None:
-        working_dir = output_dir
-
-    # Apply saturation (skipped if Vectra enabled)
-    apply_saturation(siril, config)
-
-    # Save initial file for enhancements
-    fit_path = output_dir / f"{basename}.fit"
-    siril.save(str(output_dir / basename))
-
-    # Apply enhancements if any are enabled
-    has_enhancements = (
-        config.veralux_silentium_enabled
-        or config.veralux_revela_enabled
-        or config.veralux_vectra_enabled
-    )
-    if has_enhancements:
-        apply_enhancements(siril, fit_path, config, log_fn)
-        siril.save(str(output_dir / basename))
-
-    # Save all formats
-    return save_all_formats(siril, output_dir, basename, log_fn, config)
-
-
-def stretch_and_finalize(
-    siril: "SirilInterface",
-    input_path: Path,
-    output_dir: Path,
-    basename: str,
-    config: Config,
-    log_fn: Callable[[str], None],
-    working_dir: Optional[Path] = None,
-) -> dict[str, Path]:
-    """
-    Apply stretch (with compare mode support) and finalize image.
-
-    If config.stretch_compare is True, runs both autostretch and veralux,
-    saving each with appropriate suffix. Otherwise runs config.stretch_method only.
-
-    Args:
-        siril: Siril interface
-        input_path: Path to linear input image
-        output_dir: Directory for final output files
-        basename: Base filename (without extension)
-        config: Configuration
-        log_fn: Logging function
-        working_dir: Working directory for temp files (defaults to output_dir)
-
-    Returns:
-        Dict with 'fit', 'tif', 'jpg' paths for primary output
-    """
-    if working_dir is None:
-        working_dir = output_dir
-
-    cfg = config
-    primary_paths = None
-
-    if cfg.stretch_compare:
-        methods = ["autostretch", "veralux"]
-        log_fn("Comparing stretch methods (autostretch vs veralux)...")
-    else:
-        methods = [cfg.stretch_method]
-
-    for method in methods:
-        # Load fresh linear data for each method
-        siril.load(str(input_path))
-
-        # Apply stretch
-        success = apply_stretch(siril, method, input_path, cfg, log_fn)
-        if not success:
-            log_fn(f"Stretch failed ({method}), falling back to autostretch")
-            siril.load(str(input_path))
-            siril.autostretch()
-
-        # Determine output name
-        output_name = f"{basename}_{method}" if cfg.stretch_compare else basename
-
-        # Finalize (saturation + enhancements + save)
-        paths = finalize_image(siril, output_dir, output_name, cfg, log_fn, working_dir)
-
-        if primary_paths is None:
-            primary_paths = paths
-
-    return primary_paths

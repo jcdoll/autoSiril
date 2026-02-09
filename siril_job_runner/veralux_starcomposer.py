@@ -7,9 +7,13 @@ https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_StarComp
 Blends a starless image with a star mask using hyperbolic stretch for star
 intensity control, hybrid scalar/vector engine for color grip, and
 screen/linear blend modes.
+
+Ported from standalone VeraLux reference script. Algorithmic functions are
+intentionally self-contained to allow independent validation against the
+upstream source. Shared math utilities (color space, wavelets) live in
+veralux_colorspace.py and veralux_wavelet.py.
 """
 
-from enum import Enum
 from pathlib import Path
 from typing import Callable
 
@@ -17,19 +21,12 @@ import numpy as np
 from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 
-from siril_job_runner.config import Config
+from siril_job_runner.config import BlendMode, Config
 from siril_job_runner.protocols import SirilInterface
 from siril_job_runner.veralux_stretch import get_sensor_weights
 
 # Default luminance weights (rec709)
 DEFAULT_WEIGHTS = (0.2126, 0.7152, 0.0722)
-
-
-class BlendMode(Enum):
-    """Star blending modes."""
-
-    SCREEN = "screen"
-    LINEAR_ADD = "linear_add"
 
 
 def _apply_gamma_conditioning(data: np.ndarray, gamma: float = 2.4) -> np.ndarray:
@@ -412,12 +409,7 @@ def apply_starcomposer(
         )
         return False, starless_path
 
-    blend_mode_str = config.veralux_starcomposer_blend_mode
-    try:
-        blend_mode = BlendMode(blend_mode_str)
-    except ValueError:
-        log(f"StarComposer: Unknown blend mode '{blend_mode_str}', using screen")
-        blend_mode = BlendMode.SCREEN
+    blend_mode = config.veralux_starcomposer_blend_mode
 
     # Get sensor profile weights
     weights = get_sensor_weights(config.veralux_sensor_profile)

@@ -5,11 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from siril_job_runner.calibration import (
-    CalibrationDates,
-    CalibrationManager,
-    CalibrationStatus,
-)
+from siril_job_runner.calibration import CalibrationManager
+from siril_job_runner.models import CalibrationDates, CalibrationStatus
 
 
 @pytest.fixture

@@ -6,6 +6,11 @@ https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Silentiu
 
 Uses Stationary Wavelet Transform (SWT) with soft thresholding for noise reduction.
 Includes photometric gating with signal probability and Sobel edge detection.
+
+Ported from standalone VeraLux reference script. Algorithmic functions are
+intentionally self-contained to allow independent validation against the
+upstream source. Shared math utilities (color space, wavelets) live in
+veralux_colorspace.py and veralux_wavelet.py.
 """
 
 from pathlib import Path
@@ -19,7 +24,7 @@ from scipy.signal import convolve2d
 
 from siril_job_runner.config import Config
 from siril_job_runner.protocols import SirilInterface
-from siril_job_runner.veralux_core import lab_to_rgb, rgb_to_lab
+from siril_job_runner.veralux_colorspace import lab_to_rgb, rgb_to_lab
 
 
 def _soft_threshold(coeffs: np.ndarray, threshold: np.ndarray) -> np.ndarray:
@@ -320,50 +325,6 @@ def _multiscale_denoise(
     channel_dn = channel_dn[: original_shape[0], : original_shape[1]]
 
     return channel_dn.astype(np.float32)
-
-
-def denoise_channel(
-    channel: np.ndarray,
-    intensity: float = 25.0,
-    detail_guard: float = 50.0,
-    shadow_smooth: float = 10.0,
-    n_levels: int = 4,
-) -> np.ndarray:
-    """
-    Denoise a single channel using SWT with soft thresholding.
-
-    This is a simplified interface for single-channel denoising.
-
-    Args:
-        channel: 2D image channel
-        intensity: Noise reduction intensity (0-100 slider units)
-        detail_guard: Detail protection strength (0-100 slider units)
-        shadow_smooth: Extra smoothing for shadows (0-100 slider units)
-        n_levels: Number of SWT decomposition levels (ignored, always 4)
-
-    Returns:
-        Denoised channel
-    """
-    # Compute maps
-    sigma_map, _ = _estimate_noise_map(channel)
-    edge_map = _compute_edge_map(channel)
-    signal_map = _compute_signal_probability(channel)
-
-    # Convert slider units to normalized values
-    intensity_norm = intensity / 50.0  # 0-100 -> 0-2
-    guard_norm = detail_guard / 100.0  # 0-100 -> 0-1
-    shadow_norm = shadow_smooth / 100.0  # 0-100 -> 0-1
-
-    return _multiscale_denoise(
-        channel=channel,
-        sigma_map=sigma_map,
-        edge_map=edge_map,
-        signal_map=signal_map,
-        intensity=intensity_norm,
-        detail_guard=guard_norm,
-        shadow_smooth=shadow_norm,
-        is_chroma=False,
-    )
 
 
 def denoise_image(

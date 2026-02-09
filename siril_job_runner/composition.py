@@ -133,15 +133,6 @@ def _cross_register_stacks(
     return result
 
 
-# Re-export for backwards compatibility
-__all__ = [
-    "discover_stacks",
-    "is_hdr_mode",
-    "Composer",
-    "compose_and_stretch",
-]
-
-
 class Composer:
     """
     Handles image composition and stretching.

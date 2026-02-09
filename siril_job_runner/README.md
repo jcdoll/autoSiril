@@ -39,9 +39,9 @@ uv run python run_job.py jobs/M42.json --stage preprocess
 uv run python run_job.py jobs/M42.json --seq-stats
 ```
 
-### sirilpy (Siril Integration)
+### pysiril (Siril Integration)
 
-sirilpy is required for actual processing but is not available on PyPI. It comes bundled with Siril 1.2+. Make sure Siril is running with scripting enabled before running jobs.
+pysiril is required for actual processing. It is installed from the GitLab repository (see pyproject.toml). Make sure Siril is running with scripting enabled before running jobs.
 
 ### Siril Catalog Installation (Recommended)
 

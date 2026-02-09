@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint
+        run: uvx ruff check siril_job_runner/ tests/ --extend-select I,B,SIM,C4,ISC,PIE
+
+      - name: Format check
+        run: uvx ruff format --check siril_job_runner/ tests/
+
+      - name: Test
+        run: uv run pytest --cov=siril_job_runner --cov-report=term-missing

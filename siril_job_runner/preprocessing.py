@@ -13,17 +13,10 @@ from .config import DEFAULTS, Config
 from .logger import JobLogger
 from .models import FrameInfo, StackGroup
 from .preprocessing_pipeline import run_pipeline
-from .preprocessing_utils import group_frames_by_filter_exposure, link_or_copy
+from .preprocessing_utils import group_frames_by_filter_exposure
 from .protocols import SirilInterface
 from .sequence_analysis import format_stats_log, parse_sequence_file
-
-# Re-export for backwards compatibility
-__all__ = [
-    "link_or_copy",
-    "group_frames_by_filter_exposure",
-    "Preprocessor",
-    "preprocess_with_exposure_groups",
-]
+from .siril_file_ops import link_or_copy
 
 
 class Preprocessor:

@@ -223,7 +223,7 @@ class TestApplySaturation:
         result_low, _ = apply_saturation(data, saturation=10)
         result_high, _ = apply_saturation(data, saturation=90)
 
-        from siril_job_runner.veralux_core import lab_to_lch, rgb_to_lab
+        from siril_job_runner.veralux_colorspace import lab_to_lch, rgb_to_lab
 
         lab_low = rgb_to_lab(result_low)
         lab_high = rgb_to_lab(result_high)

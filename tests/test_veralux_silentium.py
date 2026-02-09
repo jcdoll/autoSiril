@@ -7,7 +7,6 @@ from siril_job_runner.veralux_silentium import (
     _compute_signal_probability,
     _estimate_noise_map,
     _soft_threshold,
-    denoise_channel,
     denoise_image,
 )
 
@@ -114,42 +113,6 @@ class TestSignalProbability:
         bg_prob = signal_map[:20, :20].mean()  # Corner background
         sig_prob = signal_map[25:40, 25:40].mean()  # Center signal
         assert sig_prob > bg_prob
-
-
-class TestDenoiseChannel:
-    """Tests for single channel denoising."""
-
-    def test_denoise_returns_correct_shape(self):
-        """Output should match input shape."""
-        channel = np.random.rand(64, 64).astype(np.float32)
-        result = denoise_channel(channel, intensity=25)
-        assert result.shape == channel.shape
-
-    def test_denoise_reduces_noise(self):
-        """Denoising should reduce noise variance."""
-        np.random.seed(42)
-        clean = np.ones((64, 64), dtype=np.float32) * 0.5
-        noisy = clean + np.random.randn(64, 64).astype(np.float32) * 0.05
-
-        denoised = denoise_channel(noisy, intensity=50, detail_guard=0)
-
-        noise_before = np.std(noisy - clean)
-        noise_after = np.std(denoised - clean)
-
-        assert noise_after < noise_before
-
-    def test_denoise_zero_intensity_near_identity(self):
-        """Zero intensity should be close to identity."""
-        np.random.seed(42)
-        channel = (np.random.rand(64, 64) * 0.5 + 0.25).astype(np.float32)
-        result = denoise_channel(channel, intensity=0)
-        np.testing.assert_array_almost_equal(channel, result, decimal=2)
-
-    def test_denoise_handles_non_power_of_two(self):
-        """Should handle images with non-power-of-two dimensions."""
-        channel = np.random.rand(67, 53).astype(np.float32)
-        result = denoise_channel(channel, intensity=25)
-        assert result.shape == channel.shape
 
 
 class TestDenoiseImage:

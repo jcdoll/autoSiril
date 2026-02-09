@@ -1,24 +1,13 @@
 """
 Preprocessing utility functions.
 
-Provides file operations and frame grouping for preprocessing.
+Provides frame grouping and sequence file creation for preprocessing.
 """
 
-import os
-import shutil
 from collections import defaultdict
 from pathlib import Path
 
 from .models import FrameInfo, StackGroup
-
-
-def link_or_copy(src: Path, dest: Path) -> None:
-    """Hard link if possible, otherwise copy."""
-    try:
-        os.link(src, dest)
-    except OSError:
-        # Cross-device link or unsupported filesystem, fall back to copy
-        shutil.copy2(src, dest)
 
 
 def create_sequence_file(seq_path: Path, num_images: int, seq_name: str) -> None:

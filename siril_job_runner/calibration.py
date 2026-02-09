@@ -10,11 +10,8 @@ from typing import Optional
 from .calibration_paths import CalibrationPathsMixin
 from .config import DEFAULTS, Config
 from .logger import JobLogger
-from .models import CalibrationDates, CalibrationStatus
+from .models import CalibrationDates
 from .protocols import SirilInterface
-
-# Re-export for backwards compatibility
-__all__ = ["CalibrationManager", "CalibrationDates", "CalibrationStatus"]
 
 
 class CalibrationManager(CalibrationPathsMixin):
