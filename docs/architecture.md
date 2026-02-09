@@ -43,25 +43,24 @@ LINEAR PHASE
 
 BASELINE OUTPUTS (always produced)
 6. Stretch RGB (autostretch)
-7. Color removal (SCNR), neutralization, saturation
+7. Post-stretch pipeline: color removal, neutralization, saturation, enhancements
 8. Save rgb_autostretch
 
 9. Stretch RGB (veralux)
-10. Color removal (SCNR), neutralization, saturation
-11. VeraLux enhancements (Silentium/Revela/Vectra if enabled)
-12. Save rgb_veralux
+10. Post-stretch pipeline: color removal, neutralization, saturation, enhancements
+11. Save rgb_veralux
 
 STARNET OUTPUTS (if starnet_enabled)
-13. StarNet on linear RGB -> rgb_starless + rgb_stars
-14. Stretch rgb_starless (autostretch)
-15. Color removal, neutralization, saturation
-16. Save rgb_autostretch_starless
+12. StarNet on linear RGB -> rgb_starless + rgb_stars
+13. Stretch rgb_starless (autostretch)
+14. Post-stretch pipeline: color removal, neutralization, saturation, enhancements
+15. Save rgb_autostretch_starless
 
-17. Stretch rgb_starless (veralux)
-18. Color removal, neutralization, saturation, enhancements
-19. Save rgb_veralux_starless
+16. Stretch rgb_starless (veralux)
+17. Post-stretch pipeline: color removal, neutralization, saturation, enhancements
+18. Save rgb_veralux_starless
 
-20. StarComposer -> rgb_*_starcomposer
+19. StarComposer -> rgb_*_starcomposer
 ```
 
 ### LRGB Flow
@@ -77,12 +76,12 @@ LINEAR PHASE
 BASELINE OUTPUTS (always produced)
 6. Stretch RGB and L (autostretch)
 7. Combine LRGB (rgbcomp -lum)
-8. Color removal (SCNR), neutralization, saturation
+8. Post-stretch pipeline: color removal, neutralization, saturation, enhancements
 9. Save lrgb_autostretch
 
 10. Stretch RGB and L (veralux)
 11. Combine LRGB
-12. Color removal, neutralization, saturation, enhancements
+12. Post-stretch pipeline: color removal, neutralization, saturation, enhancements
 13. Save lrgb_veralux
 
 STARNET OUTPUTS (if starnet_enabled)
@@ -90,12 +89,12 @@ STARNET OUTPUTS (if starnet_enabled)
 15. StarNet on linear L -> L_starless
 16. Stretch rgb_starless and L_starless (autostretch)
 17. Combine LRGB from starless
-18. Color removal, neutralization, saturation
+18. Post-stretch pipeline: color removal, neutralization, saturation, enhancements
 19. Save lrgb_autostretch_starless
 
 20. Stretch rgb_starless and L_starless (veralux)
 21. Combine LRGB from starless
-22. Color removal, neutralization, saturation, enhancements
+22. Post-stretch pipeline: color removal, neutralization, saturation, enhancements
 23. Save lrgb_veralux_starless
 
 24. StarComposer -> lrgb_*_starcomposer
@@ -222,7 +221,7 @@ Key parameters:
 Wavelet-based noise reduction using SWT (Stationary Wavelet Transform). Operates in luminance and chrominance channels independently.
 
 Key parameters:
-- `veralux_silentium_enabled`: Enable noise suppression (default: false)
+- `veralux_silentium_enabled`: Enable noise suppression (default: true)
 - `veralux_silentium_intensity`: Luminance noise reduction 0-100 (default: 25.0)
 - `veralux_silentium_chroma`: Chrominance noise reduction 0-100 (default: 30.0)
 
@@ -231,7 +230,7 @@ Key parameters:
 Wavelet-based detail enhancement using ATWT (A Trous Wavelet Transform). Boosts fine detail (texture) and medium-scale structure independently.
 
 Key parameters:
-- `veralux_revela_enabled`: Enable detail enhancement (default: false)
+- `veralux_revela_enabled`: Enable detail enhancement (default: true)
 - `veralux_revela_texture`: Fine detail boost 0-100 (default: 50.0)
 - `veralux_revela_structure`: Medium structure boost 0-100 (default: 50.0)
 
@@ -253,6 +252,17 @@ Key parameters:
 - `veralux_starcomposer_hardness`: Profile hardness 1-100 (default: 6.0)
 - `veralux_starcomposer_blend_mode`: "screen" or "linear_add" (default: "screen")
 
+### Post-Stretch Pipeline
+
+After any stretch method (autostretch or veralux), broadband images go through the same post-processing pipeline. The stretch method only affects tone mapping; everything after is identical:
+
+1. Color cast removal (SCNR green/magenta)
+2. Background color neutralization (linear match G,B to R)
+3. Saturation adjustment
+4. VeraLux enhancements (Silentium denoise, Revela detail, Vectra saturation)
+
+This applies to all output variants (baseline, starless, LRGB, RGB) uniformly. The pipeline is implemented as `_apply_post_stretch()` in `compose_broadband.py`.
+
 ## Configuration System
 
 All configurable values are defined in `siril_job_runner/config.py` in a single `Config` dataclass. Users can override any value via:
@@ -273,7 +283,7 @@ Override precedence: `DEFAULTS <- settings.json <- job.json options`
 | `narrowband_star_color` | mono | Star color mode (mono = white) |
 | `palette` | SHO | Narrowband palette selection |
 | `spcc_enabled` | true | Spectrophotometric color calibration |
-| `deconv_enabled` | false | Richardson-Lucy deconvolution |
+| `deconv_enabled` | true | Richardson-Lucy deconvolution |
 | `temp_tolerance` | 2.0 | Temperature matching tolerance (Celsius) |
 | `pre_stack_subsky_method` | rbf | Pre-stack background extraction method |
 | `post_stack_subsky_method` | poly | Post-stack background extraction method |

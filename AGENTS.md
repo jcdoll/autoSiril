@@ -8,16 +8,25 @@ Engineering tools for internal use.
 
 ## Repository layout
 
-TODO
+- `siril_job_runner/` - main Python package (Siril processing pipeline)
+- `tests/` - pytest tests
+- `jobs/` - user job JSON files
+- `examples/` - example job files
+- `docs/` - architecture, code structure, VeraLux reference
+- `xisf_to_fits/` - separate XISF-to-FITS converter tool
+- `run_job.py` - CLI entry point
+- `settings.json` / `settings.template.json` - user settings
+- `.github/workflows/ci.yml` - GitHub Actions CI
 
 ## Tech Stack
 
-- Python
+- Python (>=3.11)
 	- Environment: `uv`
 	- Lint: `ruff`
 	- Test: `pytest`
 	- Type checking: `ty`
 	- Build: `hatchling`
+	- CI: GitHub Actions
 - Matlab
 	- Lint: `checkcode`
 	- Test: `runtests`
@@ -30,6 +39,7 @@ TODO
 	- Install: `uv sync` from pyproject.toml
 	- Lint: `uvx ruff check [path] --fix --extend-select I,B,SIM,C4,ISC,PIE && uvx ruff format [path]`
 	- Test: `uv run pytest`
+	- Test with coverage: `uv run pytest --cov=siril_job_runner --cov-report=term-missing`
 	- Type check: `uvx ty check [path]`
 - Matlab
 	- Test: `matlab -batch "runtests('tests')"
@@ -55,7 +65,7 @@ TODO
 ## Code Quality
 
 - Use type hints and docstrings for all functions
-- Keep files under 300 LOC; split if longer
+- Target files under 300 LOC, but don't split artificially (inherent domain complexity is acceptable)
 - Fix all linter issues
 
 ## Parameters
@@ -68,6 +78,13 @@ TODO
 ## Refactoring
 
 - Delete old interfaces; no legacy wrappers or thin compatibility layers
+
+## VeraLux Modules
+
+- VeraLux modules (`veralux_stretch`, `veralux_revela`, `veralux_vectra`, `veralux_silentium`, `veralux_starcomposer`) are ported from standalone reference scripts
+- Algorithmic functions in these modules are intentionally self-contained to allow independent validation against the upstream source
+- Do not extract or share algorithmic code across VeraLux modules
+- Shared math utilities (color space conversions, wavelet transforms) live in `veralux_colorspace.py` and `veralux_wavelet.py` and are fine to share
 
 ## Documentation
 

@@ -75,10 +75,17 @@ uv sync
 
 ## Development
 
+Requires Python 3.11+.
+
 ```bash
 # Run tests
 uv run pytest
 
 # Run tests with coverage
-uv run pytest --cov
+uv run pytest --cov=siril_job_runner --cov-report=term-missing
+
+# Lint and format
+uvx ruff check siril_job_runner/ tests/ --fix --extend-select I,B,SIM,C4,ISC,PIE && uvx ruff format siril_job_runner/ tests/
 ```
+
+CI runs automatically on push to main and on pull requests via GitHub Actions.
