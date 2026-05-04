@@ -24,6 +24,10 @@
     ]
   },
   "options": {
-    "dark_temp_override": -10
+    "dark_temp_override": -10,
+    "autostretch_targetbg": 0.10,
+    "autostretch_mtf_low": 0.0,
+    "autostretch_mtf_mid": 0.48,
+    "autostretch_mtf_high": 0.78
   }
 }

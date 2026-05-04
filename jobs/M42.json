@@ -70,6 +70,10 @@
     "dark_temp_override": -10,
     "hdr_low_threshold": 0.7,
     "hdr_high_threshold": 0.9,
-    "saturation_amount": 1.0
+    "saturation_amount": 1.0,
+    "autostretch_targetbg": 0.12,
+    "autostretch_mtf_low": 0.0,
+    "autostretch_mtf_mid": 0.55,
+    "autostretch_mtf_high": 0.95
   }
 }

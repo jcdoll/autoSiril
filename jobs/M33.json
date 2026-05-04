@@ -34,6 +34,10 @@
     "veralux_target_median": 0.10,
     "veralux_b": 4.0,
     "saturation_amount": 0.75,
-    "post_stack_subsky_degree": 1
+    "post_stack_subsky_degree": 1,
+    "autostretch_targetbg": 0.10,
+    "autostretch_mtf_low": 0.0,
+    "autostretch_mtf_mid": 0.47,
+    "autostretch_mtf_high": 0.78
   }
 }

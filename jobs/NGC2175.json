@@ -31,7 +31,11 @@
     "dark_temp_override": -10,
     "palette": "SHO",
     "pre_stack_subsky_method": "none",
-    "post_stack_subsky_method": "none",
-    "narrowband_neutralization": false
+    "post_stack_subsky_method": "poly",
+    "narrowband_neutralization": true,
+    "autostretch_targetbg": 0.12,
+    "autostretch_mtf_low": 0.0,
+    "autostretch_mtf_mid": 0.60,
+    "autostretch_mtf_high": 0.95
   }
 }

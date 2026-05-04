@@ -33,6 +33,10 @@
   },
   "options": {
     "dark_temp_override": -10,
-    "deconv_enabled": true
+    "deconv_enabled": true,
+    "autostretch_targetbg": 0.10,
+    "autostretch_mtf_low": 0.0,
+    "autostretch_mtf_mid": 0.50,
+    "autostretch_mtf_high": 0.75
   }
 }

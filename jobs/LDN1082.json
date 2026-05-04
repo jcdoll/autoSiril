@@ -28,5 +28,10 @@
       "LDN1082/2024_10_02/B180"
     ]
   },
-  "options": {}
+  "options": {
+    "autostretch_targetbg": 0.10,
+    "autostretch_mtf_low": 0.0,
+    "autostretch_mtf_mid": 0.47,
+    "autostretch_mtf_high": 0.72
+  }
 }

@@ -22,6 +22,11 @@
   },
   "options": {
     "dark_temp_override": -10,
-    "palette": "SHO"
+    "palette": "SHO",
+    "narrowband_neutralization": true,
+    "autostretch_targetbg": 0.10,
+    "autostretch_mtf_low": 0.04,
+    "autostretch_mtf_mid": 0.50,
+    "autostretch_mtf_high": 0.80
   }
 }

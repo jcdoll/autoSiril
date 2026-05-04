@@ -104,7 +104,7 @@ class Config:
     # MTF fine-tuning (applied after autostretch)
     autostretch_mtf_low: float = 0.0  # Black point [0-1]
     autostretch_mtf_mid: float = (
-        0.6  # Midtone [0-1], higher = darker/compress highlights
+        0.5  # Midtone [0-1], <0.5 brightens, >0.5 darkens, 0.5 neutral
     )
     autostretch_mtf_high: float = 1.0  # White point [0-1]
 
