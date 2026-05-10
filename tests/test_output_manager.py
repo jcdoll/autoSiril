@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from siril_job_runner.models import CompositionResult
 from siril_job_runner.output_manager import (
+    archive_composition_outputs,
     archive_outputs,
     clean_processed_dirs,
     discover_deliverables,
@@ -100,6 +102,68 @@ def test_archive_outputs_copies_and_verifies_files(tmp_path: Path) -> None:
     assert (output.archive_dir / "lrgb_veralux.jpg").read_text(
         encoding="utf-8"
     ) == "jpg"
+
+
+def test_archive_composition_outputs_returns_archive_paths(tmp_path: Path) -> None:
+    """Archived composition results point final files at outputs."""
+    job_path = write_job(tmp_path)
+    base_path = tmp_path / "astro"
+    processed = base_path / "M42" / "processed_lrgb"
+    stacks = processed / "stacks"
+    stacks.mkdir(parents=True)
+    for name in [
+        "lrgb_autostretch.fit",
+        "rgb_linear_spcc.fit",
+        "lrgb_veralux.fit",
+        "lrgb_veralux.tif",
+        "lrgb_veralux.jpg",
+        "job_log_M42_20260101.txt",
+    ]:
+        (processed / name).write_text(name, encoding="utf-8")
+    output = resolve_job_output(job_path, base_path, settings={})
+    result = CompositionResult(
+        linear_path=processed / "lrgb_autostretch.fit",
+        linear_pcc_path=processed / "rgb_linear_spcc.fit",
+        auto_fit=processed / "lrgb_veralux.fit",
+        auto_tif=processed / "lrgb_veralux.tif",
+        auto_jpg=processed / "lrgb_veralux.jpg",
+        stacks_dir=stacks,
+    )
+
+    archive_result, archived = archive_composition_outputs(output, result)
+
+    assert (
+        archive_result.output.archive_dir == base_path / "outputs" / "M42_lrgb_output"
+    )
+    assert archived.linear_path == output.archive_dir / "lrgb_autostretch.fit"
+    assert archived.linear_pcc_path == output.archive_dir / "rgb_linear_spcc.fit"
+    assert archived.auto_fit == output.archive_dir / "lrgb_veralux.fit"
+    assert archived.auto_tif == output.archive_dir / "lrgb_veralux.tif"
+    assert archived.auto_jpg == output.archive_dir / "lrgb_veralux.jpg"
+    assert archived.stacks_dir == stacks
+    assert (output.archive_dir / "job_log_M42_20260101.txt").exists()
+
+
+def test_archive_composition_outputs_requires_expected_files(tmp_path: Path) -> None:
+    """Archive fails if a reported composition output was not copied."""
+    job_path = write_job(tmp_path)
+    base_path = tmp_path / "astro"
+    processed = base_path / "M42" / "processed_lrgb"
+    stacks = processed / "stacks"
+    stacks.mkdir(parents=True)
+    (processed / "lrgb_veralux.jpg").write_text("jpg", encoding="utf-8")
+    output = resolve_job_output(job_path, base_path, settings={})
+    result = CompositionResult(
+        linear_path=processed / "missing_linear.fit",
+        linear_pcc_path=None,
+        auto_fit=processed / "missing_veralux.fit",
+        auto_tif=processed / "missing_veralux.tif",
+        auto_jpg=processed / "lrgb_veralux.jpg",
+        stacks_dir=stacks,
+    )
+
+    with pytest.raises(FileNotFoundError, match="Expected output was not archived"):
+        archive_composition_outputs(output, result)
 
 
 def test_discover_job_files_only_returns_json(tmp_path: Path) -> None:

@@ -9,7 +9,7 @@ from .calibration import CalibrationManager
 from .composition import compose_and_stretch
 from .job_config import load_job
 from .job_validation import validate_job
-from .logger import JobLogger, print_completion_summary
+from .logger import JobLogger
 from .models import CalibrationDates, CompositionResult, FrameInfo, ValidationResult
 from .preprocessing import preprocess_with_exposure_groups
 from .protocols import SirilInterface
@@ -65,6 +65,12 @@ class JobRunner:
         self._dark_masters: dict[tuple[float, float], Path] = {}
         self._flat_masters: dict[str, Path] = {}
 
+    def _require_siril(self) -> SirilInterface:
+        """Return the active Siril connection or fail clearly."""
+        if self.siril is None:
+            raise RuntimeError("Siril connection is required for processing")
+        return self.siril
+
     def _get_dark_temp(self, actual_temp: float) -> float:
         """Get temperature to use for dark matching (override if set)."""
         if self.config.config.dark_temp_override is not None:
@@ -94,6 +100,7 @@ class JobRunner:
             return
 
         self.logger.step("Building calibration masters...")
+        siril = self._require_siril()
 
         # Get unique requirements (with temp override if set)
         dark_combos = {
@@ -103,18 +110,17 @@ class JobRunner:
         filters = {req.filter_name for req in validation.requirements}
 
         # Build bias master (single, no temperature dependency)
-        self._bias_master = self.cal_manager.build_bias_master(self.siril)
+        bias_master = self.cal_manager.build_bias_master(siril)
+        self._bias_master = bias_master
 
         # Build dark masters
         for exp, temp in dark_combos:
-            path = self.cal_manager.build_dark_master(exp, temp, self.siril)
+            path = self.cal_manager.build_dark_master(exp, temp, siril)
             self._dark_masters[(exp, temp)] = path
 
         # Build flat masters
         for filter_name in filters:
-            path = self.cal_manager.build_flat_master(
-                filter_name, self._bias_master, self.siril
-            )
+            path = self.cal_manager.build_flat_master(filter_name, bias_master, siril)
             self._flat_masters[filter_name] = path
 
     def get_calibration(
@@ -151,9 +157,10 @@ class JobRunner:
             return {}
 
         self.logger.step("Preprocessing...")
+        siril = self._require_siril()
 
         return preprocess_with_exposure_groups(
-            siril=self.siril,
+            siril=siril,
             frames=frames,
             output_dir=self.output_dir,
             get_calibration=self.get_calibration,
@@ -161,7 +168,7 @@ class JobRunner:
             logger=self.logger,
         )
 
-    def run_composition(self) -> CompositionResult:
+    def run_composition(self) -> Optional[CompositionResult]:
         """
         Run composition and stretching.
 
@@ -172,9 +179,10 @@ class JobRunner:
         if self.dry_run:
             self.logger.step("[DRY RUN] Would compose and stretch")
             return None
+        siril = self._require_siril()
 
         return compose_and_stretch(
-            siril=self.siril,
+            siril=siril,
             output_dir=self.output_dir,
             job_type=self.config.job_type,
             config=self.config.config,
@@ -203,19 +211,6 @@ class JobRunner:
         result = self.run_composition()
 
         self.logger.info(f"Job complete: {self.config.name}")
-
-        # Print completion summary with user instructions
-        if result:
-            print_completion_summary(
-                job_name=self.config.name,
-                job_type=self.config.job_type,
-                linear_path=result.linear_path,
-                auto_fit=result.auto_fit,
-                auto_tif=result.auto_tif,
-                auto_jpg=result.auto_jpg,
-                stacks_dir=result.stacks_dir,
-                linear_pcc_path=result.linear_pcc_path,
-            )
 
         return result
 

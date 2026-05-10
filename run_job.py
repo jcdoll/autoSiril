@@ -54,6 +54,12 @@ from siril_job_runner.job_config import (  # noqa: E402
     validate_job_file,
 )
 from siril_job_runner.job_runner import JobRunner  # noqa: E402
+from siril_job_runner.logger import print_completion_summary  # noqa: E402
+from siril_job_runner.models import CompositionResult  # noqa: E402
+from siril_job_runner.output_manager import (  # noqa: E402
+    archive_composition_outputs,
+    resolve_job_output,
+)
 from siril_job_runner.sequence_analysis import (  # noqa: E402
     compute_adaptive_threshold,
     format_stats_log,
@@ -102,6 +108,32 @@ def print_summary(results: list[tuple[Path, str, str | None]]) -> None:
         else:
             print(f"  {path.stem}: {status_str}")
     print("=" * 60)
+
+
+def print_outputs(result: CompositionResult) -> None:
+    """Print final output paths for a completed composition."""
+    print()
+    print("Outputs:")
+    print(f"  Linear: {result.linear_path}")
+    if result.linear_pcc_path:
+        print(f"  Linear (PCC): {result.linear_pcc_path}")
+    print(f"  Auto FIT: {result.auto_fit}")
+    print(f"  Auto TIF: {result.auto_tif}")
+    print(f"  Auto JPG: {result.auto_jpg}")
+    print(f"  Stacks: {result.stacks_dir}")
+
+
+def archive_job_outputs(
+    job_file: Path,
+    base_path: Path,
+    settings: dict,
+    result: CompositionResult,
+) -> CompositionResult:
+    """Archive final outputs for a completed job and return archived paths."""
+    output = resolve_job_output(job_file, base_path, settings)
+    archive_result, archived_result = archive_composition_outputs(output, result)
+    print(f"Archived outputs: {archive_result.output.archive_dir}")
+    return archived_result
 
 
 def print_seq_stats(
@@ -425,21 +457,27 @@ Examples:
                     dry_run=args.dry_run,
                     force=args.force,
                 )
+                composition_result: CompositionResult | None = None
+                should_archive = False
+                print_completion = False
+                job_succeeded = False
 
                 if args.validate:
                     # Validation only
-                    result = runner.validate()
+                    validation_result = runner.validate()
                     print()
-                    if result.valid:
+                    if validation_result.valid:
                         print("Validation PASSED")
-                        print(f"  {len(result.frames)} light frames found")
+                        print(f"  {len(validation_result.frames)} light frames found")
                         print(
-                            f"  {len(result.buildable_calibration)} calibration masters to build"
+                            f"  {len(validation_result.buildable_calibration)} calibration masters to build"
                         )
-                        results.append((job_file, "success", None))
+                        job_succeeded = True
                     else:
                         print("Validation FAILED")
-                        print(f"  Missing: {', '.join(result.missing_calibration)}")
+                        print(
+                            f"  Missing: {', '.join(validation_result.missing_calibration)}"
+                        )
                         results.append((job_file, "failed", "Validation failed"))
                         if not args.continue_on_error:
                             break
@@ -460,33 +498,41 @@ Examples:
                         runner.run_calibration(validation)
                         runner.run_preprocessing(validation.frames)
                     elif args.stage == "compose":
-                        result = runner.run_composition()
-                        if result:
-                            print()
-                            print("Outputs:")
-                            print(f"  Linear: {result.linear_path}")
-                            if result.linear_pcc_path:
-                                print(f"  Linear (PCC): {result.linear_pcc_path}")
-                            print(f"  Auto FIT: {result.auto_fit}")
-                            print(f"  Auto TIF: {result.auto_tif}")
-                            print(f"  Auto JPG: {result.auto_jpg}")
-                            print(f"  Stacks: {result.stacks_dir}")
+                        composition_result = runner.run_composition()
+                        should_archive = composition_result is not None
 
-                    results.append((job_file, "success", None))
+                    job_succeeded = True
 
                 else:
                     # Full pipeline
-                    result = runner.run()
-                    if result:
-                        print()
-                        print("Outputs:")
-                        print(f"  Linear: {result.linear_path}")
-                        if result.linear_pcc_path:
-                            print(f"  Linear (PCC): {result.linear_pcc_path}")
-                        print(f"  Auto FIT: {result.auto_fit}")
-                        print(f"  Auto TIF: {result.auto_tif}")
-                        print(f"  Auto JPG: {result.auto_jpg}")
-                        print(f"  Stacks: {result.stacks_dir}")
+                    composition_result = runner.run()
+                    should_archive = composition_result is not None
+                    print_completion = composition_result is not None
+                    job_succeeded = True
+
+                if runner is not None:
+                    runner.close()
+                    runner = None
+
+                if should_archive and composition_result is not None:
+                    composition_result = archive_job_outputs(
+                        job_file, base_path, settings, composition_result
+                    )
+                    if print_completion:
+                        config = load_job(job_file, settings)
+                        print_completion_summary(
+                            job_name=config.name,
+                            job_type=config.job_type,
+                            linear_path=composition_result.linear_path,
+                            auto_fit=composition_result.auto_fit,
+                            auto_tif=composition_result.auto_tif,
+                            auto_jpg=composition_result.auto_jpg,
+                            stacks_dir=composition_result.stacks_dir,
+                            linear_pcc_path=composition_result.linear_pcc_path,
+                        )
+                    print_outputs(composition_result)
+
+                if job_succeeded:
                     results.append((job_file, "success", None))
 
             except Exception as e:

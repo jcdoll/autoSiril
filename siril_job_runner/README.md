@@ -163,7 +163,7 @@ Settings are merged with job options (job options take precedence).
 
 ### Output Management
 
-Use `manage-outputs` to archive final processed files into a shared output folder and clean generated processed folders when you are done.
+Successful full jobs and `--stage compose` runs automatically copy final top-level outputs and job logs into `<base_path>/outputs/<target>_<type>_output`. The processed folder remains the disposable working folder.
 
 List every job file with its resolved processed folder, existence status, and archive destination:
 
@@ -171,7 +171,7 @@ List every job file with its resolved processed folder, existence status, and ar
 uv run manage-outputs list
 ```
 
-Archive top-level final files and job logs from the job's processed folder into `<base_path>/outputs/<target>_<type>_output`:
+Manually repeat the archive step for an existing processed folder:
 
 ```bash
 uv run manage-outputs archive jobs/M42.json

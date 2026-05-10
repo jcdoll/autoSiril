@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from .job_config import JobConfig, load_job, load_settings
+from .models import CompositionResult
 
 FINAL_OUTPUT_SUFFIXES = frozenset(
     {".fit", ".fits", ".tif", ".tiff", ".jpg", ".jpeg", ".png"}
@@ -157,6 +158,59 @@ def archive_outputs(output: ManagedJobOutput) -> ArchiveResult:
         deliverables=deliverables,
         copied=copied,
     )
+
+
+def _archived_path(path: Path, archive_result: ArchiveResult) -> Path:
+    """Resolve a processed output path to its archived copy."""
+    source_path = Path(path)
+    copied_by_source = {
+        source.resolve(): destination for source, destination in archive_result.copied
+    }
+    copied_by_name = {
+        source.name: destination for source, destination in archive_result.copied
+    }
+
+    archived = copied_by_source.get(source_path.resolve())
+    if archived is not None:
+        return archived
+
+    archived = copied_by_name.get(source_path.name)
+    if archived is not None:
+        return archived
+
+    raise FileNotFoundError(f"Expected output was not archived: {source_path}")
+
+
+def _archived_optional_path(
+    path: Optional[Path], archive_result: ArchiveResult
+) -> Optional[Path]:
+    """Resolve an optional processed output path to its archived copy."""
+    if path is None:
+        return None
+    return _archived_path(path, archive_result)
+
+
+def map_composition_result_to_archive(
+    result: CompositionResult, archive_result: ArchiveResult
+) -> CompositionResult:
+    """Return a composition result whose final output paths point at the archive."""
+    return CompositionResult(
+        linear_path=_archived_path(result.linear_path, archive_result),
+        linear_pcc_path=_archived_optional_path(result.linear_pcc_path, archive_result),
+        auto_fit=_archived_path(result.auto_fit, archive_result),
+        auto_tif=_archived_path(result.auto_tif, archive_result),
+        auto_jpg=_archived_path(result.auto_jpg, archive_result),
+        stacks_dir=result.stacks_dir,
+    )
+
+
+def archive_composition_outputs(
+    output: ManagedJobOutput, result: CompositionResult
+) -> tuple[ArchiveResult, CompositionResult]:
+    """Archive final job outputs and return result paths pointing at the archive."""
+    archive_result = archive_outputs(output)
+    archived_result = map_composition_result_to_archive(result, archive_result)
+    return archive_result, archived_result
 
 
 def validate_clean_target(path: Path, base_path: Path) -> None:
