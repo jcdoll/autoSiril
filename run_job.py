@@ -14,7 +14,6 @@ Usage:
 """
 
 import argparse
-import shutil
 import sys
 from contextlib import suppress
 from datetime import datetime
@@ -218,15 +217,6 @@ def print_seq_stats(
             print(f"  {line}")
 
 
-def find_siril_executable() -> str | None:
-    """Find a Siril executable on PATH."""
-    for executable in ("siril", "siril-cli"):
-        path = shutil.which(executable)
-        if path:
-            return path
-    return None
-
-
 def get_siril_interface():
     """
     Get Siril interface.
@@ -238,8 +228,7 @@ def get_siril_interface():
 
         from siril_job_runner.siril_wrapper import SirilWrapper
 
-        siril_exe = find_siril_executable()
-        siril = Siril(siril_exe=siril_exe) if siril_exe else Siril()
+        siril = Siril()
         siril.Open()
         return SirilWrapper(siril), siril  # Return wrapper and raw for cleanup
     except ImportError:
