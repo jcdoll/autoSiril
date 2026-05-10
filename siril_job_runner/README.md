@@ -18,25 +18,28 @@ Automated Siril image processing pipeline with JSON job file configuration.
 
 ```bash
 # Validate a job file (check calibration availability)
-uv run python run_job.py jobs/M42.json --validate
+uv run run-job jobs/M42.json --validate
 
 # Dry run (show what would happen)
-uv run python run_job.py jobs/M42.json --dry-run
+uv run run-job jobs/M42.json --dry-run
 
 # Run full pipeline
-uv run python run_job.py jobs/M42.json
+uv run run-job jobs/M42.json
 
 # Run with logging to file
-uv run python run_job.py jobs/M42.json --log
+uv run run-job jobs/M42.json --log
+
+# Run every job in jobs/ with logging and continue after failures
+uv run run-job jobs/ --log --continue-on-error
 
 # Force reprocessing (ignore cached stacks)
-uv run python run_job.py jobs/M42.json --force
+uv run run-job jobs/M42.json --force
 
 # Run specific stage
-uv run python run_job.py jobs/M42.json --stage preprocess
+uv run run-job jobs/M42.json --stage preprocess
 
 # View registration stats from previous run
-uv run python run_job.py jobs/M42.json --seq-stats
+uv run run-job jobs/M42.json --seq-stats
 ```
 
 ### pysiril (Siril Integration)
@@ -163,7 +166,9 @@ Settings are merged with job options (job options take precedence).
 
 ### Output Management
 
-Successful full jobs and `--stage compose` runs automatically copy final top-level outputs and job logs into `<base_path>/outputs/<target>_<type>_output`. The processed folder remains the disposable working folder.
+Siril writes intermediate files and top-level final products into each job's resolved processed folder, such as `<base_path>/M31/processed_lrgb`. Successful full jobs and `--stage compose` runs automatically copy the final top-level outputs and job logs into `<base_path>/outputs/<target>_<type>_output`.
+
+The `outputs/` folder is the durable location to keep or share. The target-level `processed*` folders are disposable working folders and can be cleaned after outputs are archived.
 
 List every job file with its resolved processed folder, existence status, and archive destination:
 

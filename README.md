@@ -21,20 +21,22 @@ Automated Siril processing pipeline with JSON job file configuration.
 
 ```bash
 # Run a single job
-uv run python run_job.py jobs/M42.json
+uv run run-job jobs/M42.json
 
 # Run multiple jobs
-uv run python run_job.py jobs/M42.json jobs/M31.json
+uv run run-job jobs/M42.json jobs/M31.json
 
 # Run all jobs in a directory
-uv run python run_job.py jobs/
+uv run run-job jobs/
 
 # Run jobs matching a pattern
-uv run python run_job.py jobs/ --pattern "SH2*"
+uv run run-job jobs/ --pattern "SH2*"
 
-# Continue processing after failures
-uv run python run_job.py jobs/ --continue-on-error
+# Run all jobs with logging and continue after failures
+uv run run-job jobs/ --log --continue-on-error
 ```
+
+Successful full jobs and `--stage compose` runs copy final output files and job logs into `<base_path>/outputs/<target>_<type>_output`. The target-level `processed*` folders remain disposable working folders and can be cleaned after outputs are archived.
 
 Features:
 - Job file-based configuration for reproducible processing
