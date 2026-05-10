@@ -22,6 +22,7 @@ class JobRunner:
         self,
         job_path: Path,
         base_path: Path,
+        settings: Optional[dict] = None,
         siril: Optional[SirilInterface] = None,
         dry_run: bool = False,
         force: bool = False,
@@ -32,7 +33,7 @@ class JobRunner:
         self.dry_run = dry_run
 
         # Load job config
-        self.config = load_job(self.job_path)
+        self.config = load_job(self.job_path, settings)
 
         # CLI --force overrides job file setting
         if force:

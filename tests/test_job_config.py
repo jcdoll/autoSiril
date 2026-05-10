@@ -105,10 +105,22 @@ def test_validate_job_file_valid(job_file):
     assert error is None
 
 
+def test_validate_job_file_uses_settings(job_file):
+    """Test validation includes settings options."""
+    settings = {"options": {"invalid_option": 123}}
+
+    is_valid, error = validate_job_file(job_file, settings)
+
+    assert not is_valid
+    assert error is not None
+    assert "unknown config options" in error.lower()
+
+
 def test_validate_job_file_not_found():
     """Test validation of non-existent file."""
     is_valid, error = validate_job_file(Path("/nonexistent/job.json"))
     assert not is_valid
+    assert error is not None
     assert "not found" in error.lower()
 
 
@@ -120,6 +132,7 @@ def test_validate_job_file_invalid_json():
 
     is_valid, error = validate_job_file(path)
     assert not is_valid
+    assert error is not None
     assert "json" in error.lower()
 
 
@@ -219,3 +232,23 @@ def test_config_settings_and_job_merge():
     assert job.config.fwhm_bic_threshold == 15.0
     # temp_tolerance from job (overrides settings)
     assert job.config.temp_tolerance == 5.0
+
+
+def test_job_runner_loads_settings_options(tmp_path, valid_job_dict):
+    """Test JobRunner passes settings into job loading."""
+    from siril_job_runner.job_runner import JobRunner
+
+    job_path = tmp_path / "job.json"
+    job_path.write_text(json.dumps(valid_job_dict), encoding="utf-8")
+    settings = {"options": {"saturation_amount": 0.75}}
+
+    runner = JobRunner(
+        job_path=job_path,
+        base_path=tmp_path,
+        settings=settings,
+        dry_run=True,
+    )
+    try:
+        assert runner.config.config.saturation_amount == 0.75
+    finally:
+        runner.close()

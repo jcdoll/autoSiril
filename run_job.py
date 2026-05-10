@@ -15,6 +15,7 @@ Usage:
 
 import argparse
 import sys
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -28,7 +29,7 @@ class TeeWriter:
     """Write to both stdout and a file."""
 
     def __init__(self, file_path: Path):
-        self.file = open(file_path, "w", encoding="utf-8")
+        self.file = open(file_path, "w", encoding="utf-8")  # noqa: SIM115
         self.stdout = sys.stdout
 
     def write(self, data):
@@ -43,12 +44,17 @@ class TeeWriter:
     def close(self):
         self.file.close()
 
+
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from siril_job_runner.job_config import load_job, load_settings, validate_job_file
-from siril_job_runner.job_runner import JobRunner
-from siril_job_runner.sequence_analysis import (
+from siril_job_runner.job_config import (  # noqa: E402
+    load_job,
+    load_settings,
+    validate_job_file,
+)
+from siril_job_runner.job_runner import JobRunner  # noqa: E402
+from siril_job_runner.sequence_analysis import (  # noqa: E402
     compute_adaptive_threshold,
     format_stats_log,
     parse_sequence_file,
@@ -98,7 +104,9 @@ def print_summary(results: list[tuple[Path, str, str | None]]) -> None:
     print("=" * 60)
 
 
-def print_seq_stats(job_path: Path, base_path: Path) -> None:
+def print_seq_stats(
+    job_path: Path, base_path: Path, settings: dict | None = None
+) -> None:
     """
     Print registration stats from existing .seq files for a job.
 
@@ -107,7 +115,7 @@ def print_seq_stats(job_path: Path, base_path: Path) -> None:
     """
     import numpy as np
 
-    config = load_job(job_path)
+    config = load_job(job_path, settings)
     output_dir = base_path / config.output
     process_dir = output_dir / "process"
 
@@ -152,8 +160,7 @@ def print_seq_stats(job_path: Path, base_path: Path) -> None:
         f"|{'Roundness':<15}|{'Stars':<15}|{'Threshold':<17}|"
     )
     sep = (
-        f"|{'-'*10}|{'-'*7}|{'-'*17}|{'-'*17}"
-        f"|{'-'*15}|{'-'*15}|{'-'*17}|"
+        f"|{'-' * 10}|{'-' * 7}|{'-' * 17}|{'-' * 17}|{'-' * 15}|{'-' * 15}|{'-' * 17}|"
     )
     print(sep)
     print(header)
@@ -195,7 +202,9 @@ def print_seq_stats(job_path: Path, base_path: Path) -> None:
         print(row)
 
     print(sep)
-    print("\nValues shown as min/med/max. Threshold column shows wFWHM cutoff and frames rejected.")
+    print(
+        "\nValues shown as min/med/max. Threshold column shows wFWHM cutoff and frames rejected."
+    )
 
     # Print detailed per-filter stats
     print("\n" + "=" * 80)
@@ -224,7 +233,9 @@ def get_siril_interface():
         return SirilWrapper(siril), siril  # Return wrapper and raw for cleanup
     except ImportError:
         print("WARNING: pysiril not available.")
-        print("Install with: uv pip install git+https://gitlab.com/free-astro/pysiril.git")
+        print(
+            "Install with: uv pip install git+https://gitlab.com/free-astro/pysiril.git"
+        )
         print("Running in validation-only mode.")
         return None, None
     except Exception as e:
@@ -351,18 +362,20 @@ Examples:
 
     # Determine base path
     repo_root = Path(__file__).parent
+    settings = load_settings(repo_root)
     if args.base_path:
         base_path = args.base_path
     else:
         # Try to load from settings.json
-        settings = load_settings(repo_root)
         if "base_path" in settings:
             base_path = Path(settings["base_path"])
         else:
             print("ERROR: No base_path specified.")
             print("Either:")
             print("  1. Use --base-path argument")
-            print("  2. Create settings.json with base_path (copy from settings.template.json)")
+            print(
+                "  2. Create settings.json with base_path (copy from settings.template.json)"
+            )
             sys.exit(1)
 
     # Handle --seq-stats (no Siril needed, only supports single job)
@@ -370,7 +383,7 @@ Examples:
         if is_batch:
             print("ERROR: --seq-stats only supports single job")
             sys.exit(1)
-        print_seq_stats(job_files[0], base_path)
+        print_seq_stats(job_files[0], base_path, settings)
         sys.exit(0)
 
     # Get Siril interface (shared across all jobs)
@@ -394,7 +407,7 @@ Examples:
                 print("=" * 60)
 
             # Quick validation check
-            is_valid, error = validate_job_file(job_file)
+            is_valid, error = validate_job_file(job_file, settings)
             if not is_valid:
                 print(f"ERROR: Invalid job file: {error}")
                 results.append((job_file, "failed", f"Invalid: {error}"))
@@ -407,6 +420,7 @@ Examples:
                 runner = JobRunner(
                     job_path=job_file,
                     base_path=base_path,
+                    settings=settings,
                     siril=siril,
                     dry_run=args.dry_run,
                     force=args.force,
@@ -419,7 +433,9 @@ Examples:
                     if result.valid:
                         print("Validation PASSED")
                         print(f"  {len(result.frames)} light frames found")
-                        print(f"  {len(result.buildable_calibration)} calibration masters to build")
+                        print(
+                            f"  {len(result.buildable_calibration)} calibration masters to build"
+                        )
                         results.append((job_file, "success", None))
                     else:
                         print("Validation FAILED")
@@ -493,10 +509,8 @@ Examples:
     finally:
         # Close Siril connection (use raw pysiril object)
         if siril_raw is not None:
-            try:
+            with suppress(Exception):
                 siril_raw.Close()
-            except Exception:
-                pass
 
         # Close log file
         if tee is not None:

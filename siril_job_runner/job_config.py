@@ -129,24 +129,26 @@ def load_settings(repo_root: Path) -> dict:
     return {}
 
 
-def validate_job_file(path: Path) -> tuple[bool, Optional[str]]:
+def validate_job_file(
+    path: Path, settings: Optional[dict] = None
+) -> tuple[bool, Optional[str]]:
     """
     Validate a job file without loading it fully.
 
     Returns (is_valid, error_message).
     """
     try:
-        load_job(path)
+        load_job(path, settings)
         return True, None
     except FileNotFoundError as e:
         return False, str(e)
     except json.JSONDecodeError as e:
         return False, f"Invalid JSON: {e}"
-    except jsonschema.ValidationError as e:
-        return False, f"Schema validation failed: {e.message}"
     except KeyError as e:
         return False, f"Missing required field: {e}"
     except ValueError as e:
         return False, str(e)  # Unknown config option
     except Exception as e:
+        if jsonschema is not None and isinstance(e, jsonschema.ValidationError):
+            return False, f"Schema validation failed: {e.message}"
         return False, f"Unexpected error: {e}"
