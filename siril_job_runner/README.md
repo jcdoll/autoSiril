@@ -161,4 +161,32 @@ Create a `settings.json` file (copy from `settings.template.json`) to set defaul
 
 Settings are merged with job options (job options take precedence).
 
+### Output Management
+
+Use `manage-outputs` to archive final processed files into a shared output folder and clean generated processed folders when you are done.
+
+List every job file with its resolved processed folder, existence status, and archive destination:
+
+```bash
+uv run manage-outputs list
+```
+
+Archive top-level final files and job logs from the job's processed folder into `<base_path>/outputs/<target>_<type>_output`:
+
+```bash
+uv run manage-outputs archive jobs/M42.json
+```
+
+Clean one job's processed folder:
+
+```bash
+uv run manage-outputs clean jobs/M42.json
+```
+
+Clean processed folders resolved from every job file in `jobs/`:
+
+```bash
+uv run manage-outputs clean --all
+```
+
 See `examples/` for more job file examples.

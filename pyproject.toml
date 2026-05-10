@@ -28,6 +28,7 @@ validation = [
 
 [project.scripts]
 run-job = "run_job:main"
+manage-outputs = "siril_job_runner.manage_outputs:main"
 
 [build-system]
 requires = ["hatchling"]
