@@ -232,16 +232,20 @@ def preprocess_with_exposure_groups(
 
     results = {}
     for group in groups:
-        temp = group.frames[0].temperature if group.frames else 0.0
-
-        bias, dark, flat = get_calibration(group.filter_name, group.exposure, temp)
-
-        if not all([bias, dark, flat]):
-            if logger:
-                logger.error(
-                    f"Missing calibration for {group.filter_name} @ {group.exposure_str}"
-                )
-            continue
+        choices = {
+            get_calibration(group.filter_name, group.exposure, frame.temperature)
+            for frame in group.frames
+        }
+        if len(choices) != 1:
+            raise ValueError(
+                f"{group.filter_name} @ {group.exposure_str} requires different "
+                "calibration masters; this workflow cannot calibrate them together"
+            )
+        bias, dark, flat = choices.pop()
+        if bias is None or dark is None or flat is None:
+            raise ValueError(
+                f"Missing calibration for {group.filter_name} @ {group.exposure_str}"
+            )
 
         stack_path = preprocessor.process_stack_group(
             group=group,

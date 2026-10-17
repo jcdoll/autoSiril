@@ -339,6 +339,7 @@ class Config:
     # See also: https://jonrista.com/the-astrophotographers-guide/pixinsights/narrow-band-combinations-with-pixelmath-hoo/
     palette_linearfit_to_weakest: bool = False
 
+    flip_calibration_vertical: bool = False  # Working copies only; preserve inputs
     dark_temp_override: Optional[float] = None
     force_reprocess: bool = False  # Force re-stacking even if cached
 

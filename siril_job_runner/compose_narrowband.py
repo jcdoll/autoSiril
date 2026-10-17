@@ -348,7 +348,7 @@ def compose_narrowband(
             channel_max[ch] = stats["max"]
             log_fn(f"  {ch}: max={stats['max']:.4f}")
 
-        ref_ch = min(channel_max, key=channel_max.get)
+        ref_ch = min(channel_max, key=channel_max.__getitem__)
         channels_to_fit = [ch for ch in narrowband_channels if ch != ref_ch]
 
         if channels_to_fit:
@@ -514,6 +514,8 @@ def compose_narrowband(
         if primary_paths is None:
             primary_paths = paths
 
+    if primary_paths is None:
+        raise ValueError("No narrowband palette produced an image")
     return CompositionResult(
         linear_path=linear_path,
         linear_pcc_path=None,  # No PCC for narrowband

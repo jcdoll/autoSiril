@@ -140,10 +140,16 @@ def analyze_psf(path: Path) -> Optional[PSFStats]:
 def format_psf_stats(stats: PSFStats) -> list[str]:
     """Format PSF stats as log lines."""
     return [
-        f"Dimensions: {stats.dimensions[0]}x{stats.dimensions[1]}, "
-        f"Peak: {stats.peak_value:.2f} at {stats.peak_location}",
-        f"FWHM: {stats.fwhm_x:.1f}x{stats.fwhm_y:.1f} px, "
-        f"Ellipticity: {stats.ellipticity:.2f}",
-        f"Encircled energy: 50% at r={stats.ee50_radius:.1f}px, "
-        f"90% at r={stats.ee90_radius:.1f}px",
+        (
+            f"Dimensions: {stats.dimensions[0]}x{stats.dimensions[1]}, "
+            f"Peak: {stats.peak_value:.2f} at {stats.peak_location}"
+        ),
+        (
+            f"FWHM: {stats.fwhm_x:.1f}x{stats.fwhm_y:.1f} px, "
+            f"Ellipticity: {stats.ellipticity:.2f}"
+        ),
+        (
+            f"Encircled energy: 50% at r={stats.ee50_radius:.1f}px, "
+            f"90% at r={stats.ee90_radius:.1f}px"
+        ),
     ]

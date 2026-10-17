@@ -68,7 +68,8 @@ def test_context_manager():
         log_files = list(Path(tmpdir).glob("job_log_*.txt"))
         assert len(log_files) == 1
         content = log_files[0].read_text()
-        assert "Job completed" in content
+        assert "Log closed" in content
+        assert "Job completed" not in content
 
 
 def test_timed_operation(capsys):

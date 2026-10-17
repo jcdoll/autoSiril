@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from siril_job_runner.config import Config
-from siril_job_runner.siril_wrapper import SirilWrapper
+from siril_job_runner.protocols import SirilInterface
 
 # Reference defaults from VeraLux
 DEFAULT_CONVERGENCE_POWER = 3.5
@@ -554,7 +554,7 @@ def _adaptive_output_scaling(
 
 
 def apply_stretch(
-    siril: SirilWrapper,
+    siril: SirilInterface,
     image_path: Path,
     config: Config,
     log_fn: Callable[[str], None] | None = None,

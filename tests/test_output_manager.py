@@ -9,7 +9,7 @@ from siril_job_runner.models import CompositionResult
 from siril_job_runner.output_manager import (
     archive_composition_outputs,
     archive_outputs,
-    clean_processed_dirs,
+    clean_job_temporary_files,
     discover_deliverables,
     discover_job_files,
     resolve_job_output,
@@ -179,21 +179,54 @@ def test_discover_job_files_only_returns_json(tmp_path: Path) -> None:
     assert [path.name for path in paths] == ["A.json", "B.json"]
 
 
-def test_clean_processed_dirs_removes_existing_and_skips_missing(
-    tmp_path: Path,
+def test_clean_keeps_inputs_stacks_and_final_images(tmp_path: Path) -> None:
+    """Only disposable directories are removed; source symlinks are not followed."""
+    job = write_job(tmp_path)
+    base = tmp_path / "astro"
+    source = base / "M42/2024_01_15/L180/light.fit"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"original")
+    processed = base / "M42/processed_lrgb"
+    scratch = processed / "process/L_180s"
+    scratch.mkdir(parents=True)
+    (scratch / "light00001.fit").symlink_to(source)
+    (scratch / "pp_light00001.fit").write_bytes(b"temporary")
+    stack = processed / "stacks/stack_L_180s.fit"
+    stack.parent.mkdir()
+    stack.write_bytes(b"combined")
+    final = processed / "final.fit"
+    final.write_bytes(b"final")
+    clean_job_temporary_files(job, base)
+    assert not scratch.exists()
+    assert source.read_bytes() == b"original"
+    assert stack.read_bytes() == b"combined"
+    assert final.read_bytes() == b"final"
+    assert clean_job_temporary_files(job, base) == []
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_clean_rejects_input_overlap_before_any_deletion(
+    tmp_path: Path, symlink: bool
 ) -> None:
-    """Cleanup removes existing job outputs and reports missing ones."""
-    base_path = tmp_path / "astro"
-    existing = base_path / "M42" / "processed_lrgb"
-    missing = base_path / "M31" / "processed_lrgb"
-    existing.mkdir(parents=True)
-
-    result = clean_processed_dirs([existing, missing], base_path)
-
-    assert result.targets == [existing, missing]
-    assert result.removed == [existing]
-    assert result.skipped_missing == [missing]
-    assert not existing.exists()
+    """A bad job path or directory link cannot turn cleanup into input deletion."""
+    job = write_job(tmp_path)
+    base = tmp_path / "astro"
+    processed = base / "M42/processed_lrgb"
+    scratch = processed / "process"
+    scratch.mkdir(parents=True)
+    marker = scratch / "keep.fit"
+    marker.write_bytes(b"keep")
+    if symlink:
+        source = base / "M42/2024_01_15/L180"
+        source.mkdir(parents=True)
+        (processed / "hdr").symlink_to(source, target_is_directory=True)
+    else:
+        data = json.loads(job.read_text())
+        data["lights"]["L"] = ["M42/processed_lrgb/process"]
+        job.write_text(json.dumps(data))
+    with pytest.raises(ValueError):
+        clean_job_temporary_files(job, base)
+    assert marker.read_bytes() == b"keep"
 
 
 def test_validate_clean_target_rejects_nested_processed_dir(tmp_path: Path) -> None:
@@ -263,13 +296,14 @@ def test_cli_clean_single_job_removes_only_that_job(
     write_job(repo_root / "jobs", name="M31", output="M31/processed_lrgb")
     m42_output = base_path / "M42" / "processed_lrgb"
     m31_output = base_path / "M31" / "processed_lrgb"
-    m42_output.mkdir(parents=True)
+    (m42_output / "process").mkdir(parents=True)
     m31_output.mkdir(parents=True)
 
     exit_code = main(["clean", str(m42_job)])
 
     assert exit_code == 0
-    assert not m42_output.exists()
+    assert m42_output.exists()
+    assert not (m42_output / "process").exists()
     assert m31_output.exists()
 
 
@@ -286,11 +320,12 @@ def test_cli_clean_all_only_uses_job_files(
     write_job(repo_root / "jobs", name="M42", output="M42/processed_lrgb")
     job_output = base_path / "M42" / "processed_lrgb"
     unmanaged_output = base_path / "M42" / "processed"
-    job_output.mkdir(parents=True)
+    (job_output / "process").mkdir(parents=True)
     unmanaged_output.mkdir()
 
     exit_code = main(["clean", "--all"])
 
     assert exit_code == 0
-    assert not job_output.exists()
+    assert job_output.exists()
+    assert not (job_output / "process").exists()
     assert unmanaged_output.exists()

@@ -125,7 +125,7 @@ class JobLogger:
         """Close the log file."""
         if self.log_file:
             self._write_to_file("-" * 60)
-            self._write_to_file(f"Job completed: {datetime.now().isoformat()}")
+            self._write_to_file(f"Log closed: {datetime.now().isoformat()}")
             total_elapsed = time.time() - self.start_time
             self._write_to_file(f"Total time: {total_elapsed:.1f}s")
             self.log_file.close()

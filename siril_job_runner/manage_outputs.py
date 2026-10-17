@@ -10,10 +10,9 @@ from pathlib import Path
 
 from .output_manager import (
     ArchiveResult,
-    CleanResult,
     ManagedJobOutput,
     archive_outputs,
-    clean_processed_dirs,
+    clean_job_temporary_files,
     discover_job_files,
     load_repo_settings,
     resolve_base_path,
@@ -38,12 +37,14 @@ def build_parser() -> argparse.ArgumentParser:
     archive.add_argument("job_paths", type=Path, nargs="+", help="Job JSON files")
     archive.set_defaults(func=run_archive)
 
-    clean = subparsers.add_parser("clean", help="Remove processed folders")
+    clean = subparsers.add_parser(
+        "clean", help="Remove temporary files; keep inputs, stacks and final images"
+    )
     clean.add_argument("job_paths", type=Path, nargs="*", help="Job JSON files")
     clean.add_argument(
         "--all",
         action="store_true",
-        help="Clean processed folders resolved from all job files in jobs/",
+        help="Clean temporary files for all jobs in jobs/",
     )
     clean.set_defaults(func=run_clean)
 
@@ -79,15 +80,6 @@ def _print_archive_result(result: ArchiveResult) -> None:
         print(f"  copied: {source} -> {destination}")
 
 
-def _print_clean_result(result: CleanResult) -> None:
-    """Print cleanup result details."""
-    for target in result.targets:
-        if target in result.skipped_missing:
-            print(f"Missing: {target}")
-        else:
-            print(f"Removed: {target}")
-
-
 def run_list(args: argparse.Namespace) -> int:
     """Run the list subcommand."""
     base_path, settings, repo_root = _context()
@@ -119,11 +111,9 @@ def run_clean(args: argparse.Namespace) -> int:
 
     job_paths = discover_job_files(repo_root / "jobs") if args.all else args.job_paths
 
-    outputs = resolve_job_outputs(job_paths, base_path, settings)
-    result = clean_processed_dirs(
-        [output.processed_dir for output in outputs], base_path
-    )
-    _print_clean_result(result)
+    for job_path in job_paths:
+        for path in clean_job_temporary_files(job_path, base_path, settings):
+            print(f"Removed: {path}")
 
     return 0
 

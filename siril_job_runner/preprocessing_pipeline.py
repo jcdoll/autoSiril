@@ -7,6 +7,9 @@ Contains the core pipeline steps for calibration, registration, and stacking.
 from pathlib import Path
 from typing import Callable, Optional
 
+import numpy as np
+from astropy.io import fits
+
 from .config import Config, SubskyMethod
 from .preprocessing_utils import create_sequence_file
 from .protocols import SirilInterface
@@ -124,6 +127,28 @@ def run_pipeline(
     cfg = config
     if not siril.cd(str(process_dir)):
         raise RuntimeError(f"Failed to cd to process directory: {process_dir}")
+
+    if cfg.flip_calibration_vertical:
+        subtraction_master = dark_master if dark_master.exists() else bias_master
+        oriented = []
+        for kind, master in (
+            ("subtraction", subtraction_master),
+            ("flat", flat_master),
+        ):
+            destination = process_dir / f"calibration_{kind}.fit"
+            with fits.open(master) as hdul:
+                data = hdul[0].data
+                if data is None or data.ndim != 2:
+                    raise ValueError(f"Expected a mono calibration master: {master}")
+                fits.writeto(destination, np.flipud(data), hdul[0].header)
+            oriented.append(destination)
+        if dark_master.exists():
+            dark_master = oriented[0]
+        else:
+            bias_master = oriented[0]
+        flat_master = oriented[1]
+        if log_fn:
+            log_fn("Using vertically flipped working calibration copies")
 
     # Smart calibration: dark already contains bias, so don't pass both.
     # Only use bias separately if no dark is available.

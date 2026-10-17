@@ -1,111 +1,76 @@
-"""
-HDR (High Dynamic Range) blending for multi-exposure astrophotography.
-
-This module implements brightness-weighted HDR compositing using Siril's PixelMath.
-It blends multiple exposures of the same target to extend dynamic range, using
-longer exposures for shadow detail and shorter exposures to recover clipped highlights.
-
-Algorithm
----------
-For each pixel, the blend weight is determined by the pixel's brightness in the
-longer exposure:
-
-    weight = clamp((long - low_threshold) / (high_threshold - low_threshold), 0, 1)
-    result = long * (1 - weight) + short * weight
-
-Where:
-    - low_threshold (default 0.7): Below this, use 100% long exposure
-    - high_threshold (default 0.9): Above this, use 100% short exposure
-    - Between thresholds: smooth linear blend
-
-For 3+ exposures, blending is done iteratively from longest to shortest:
-    1. Blend 180s + 30s -> intermediate
-    2. Blend intermediate + 10s -> final HDR
-
-This approach:
-    - Preserves maximum S/N in faint regions (long exposure dominates)
-    - Recovers clipped highlights (short exposure fills in)
-    - Smooth transitions avoid visible seams
-
-Usage
------
-The HDRBlender class handles the full workflow:
-
-    1. Register all exposure stacks to the longest exposure (best S/N for detection)
-    2. Linear match backgrounds so all exposures are on same scale
-    3. Blend using PixelMath formulas
-    4. Output single HDR-blended stack per channel
-
-References
-----------
-- Siril PixelMath: https://siril.readthedocs.io/en/stable/processing/pixelmath.html
-- HDR discussion: https://discuss.pixls.us/t/hdr-processing-in-siril/20492
-"""
+"""Combine aligned exposure stacks while retaining unsaturated core detail."""
 
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+from astropy.io import fits
+
 from .config import DEFAULTS, Config
 from .logger import JobLogger
 from .models import StackInfo
-from .protocols import SirilInterface
 
 
-def build_blend_formula(
-    long_var: str,
-    short_var: str,
-    low_threshold: float,
-    high_threshold: float,
-) -> str:
+def blend_exposures(
+    shorter: np.ndarray,
+    longer: np.ndarray,
+    low: float,
+    high: float,
+) -> np.ndarray:
+    """Match an unclipped shorter HDR image to a longer exposure and blend.
+
+    Work from shortest to longest. Weights use the unmodified longer image,
+    so a recovered core never determines the saturation mask of another image.
+    Keep values above one until the final blend is saved.
     """
-    Build PixelMath formula for brightness-weighted HDR blend.
-
-    The formula computes a weight based on the long exposure's pixel value,
-    then blends between long and short exposures.
-
-    Args:
-        long_var: Variable name for long exposure (e.g., "long")
-        short_var: Variable name for short exposure (e.g., "short")
-        low_threshold: Below this, use 100% long exposure
-        high_threshold: Above this, use 100% short exposure
-
-    Returns:
-        PixelMath expression string
-    """
-    ramp_range = high_threshold - low_threshold
-
-    weight_expr = (
-        f"iif(${long_var}$ < {low_threshold}, 0, "
-        f"iif(${long_var}$ > {high_threshold}, 1, "
-        f"(${long_var}$ - {low_threshold}) / {ramp_range}))"
+    if shorter.shape != longer.shape or shorter.ndim != 2:
+        raise ValueError("HDR requires aligned, equally sized mono images")
+    if not 0 <= low < high <= 1:
+        raise ValueError("HDR thresholds must satisfy 0 <= low < high <= 1")
+    if not np.isfinite(shorter).all() or not np.isfinite(longer).all():
+        raise ValueError("HDR input contains non-finite pixels")
+    # Fit short = a * long + b, using the less noisy longer exposure as
+    # the reference. Exclude sky noise so it cannot determine the slope.
+    stride = max(1, int(np.sqrt(longer.size / 2_000_000)))
+    x = shorter[::stride, ::stride].ravel().astype(np.float64)
+    y = longer[::stride, ::stride].ravel().astype(np.float64)
+    overlap = (x > 0) & (y > 0) & (y < low)
+    if np.count_nonzero(overlap) < 100:
+        raise ValueError("Too few unsaturated pixels to match HDR exposures")
+    background = float(np.median(y[overlap]))
+    differences = np.diff(longer[::stride].astype(np.float64), axis=1)[:, ::stride]
+    noise = (
+        1.4826
+        * float(np.median(np.abs(differences - np.median(differences))))
+        / np.sqrt(2)
     )
-
-    formula = f"${long_var}$ * (1 - {weight_expr}) + ${short_var}$ * {weight_expr}"
-
-    return formula
+    valid = overlap & (y > background + 5 * noise)
+    x, y = x[valid], y[valid]
+    if x.size < 100 or np.ptp(y) == 0:
+        raise ValueError("Too few unsaturated signal pixels to match HDR exposures")
+    inverse_slope, inverse_offset = np.polyfit(y, x, 1)
+    if not np.isfinite([inverse_slope, inverse_offset]).all() or inverse_slope <= 0:
+        raise ValueError("Invalid HDR exposure match")
+    slope, offset = 1 / inverse_slope, -inverse_offset / inverse_slope
+    weight = np.clip((longer - low) / (high - low), 0, 1)
+    return np.asarray(
+        longer * (1 - weight) + (shorter * slope + offset) * weight, dtype=np.float32
+    )
 
 
 class HDRBlender:
     """
     Handles HDR blending of multiple exposures per channel.
 
-    Workflow:
-        1. For each channel with multiple exposures:
-           a. Register all to longest exposure
-           b. Linear match backgrounds
-           c. Iteratively blend from longest to shortest
-        2. Output single HDR stack per channel
+    Inputs are already aligned by composition. Blend shortest to longest,
+    preserving recovered core values until the final normalization.
     """
 
     def __init__(
         self,
-        siril: SirilInterface,
-        work_dir: Path,
         config: Config = DEFAULTS,
         logger: Optional[JobLogger] = None,
     ):
-        self.siril = siril
-        self.work_dir = Path(work_dir)
         self.config = config
         self.logger = logger
 
@@ -141,54 +106,29 @@ class HDRBlender:
 
         self._log_step(f"HDR blending {channel} ({len(stacks)} exposures)")
 
-        sorted_stacks = sorted(stacks, key=lambda s: s.exposure, reverse=True)
-
-        hdr_dir = self.work_dir / "hdr" / channel
-        hdr_dir.mkdir(parents=True, exist_ok=True)
-        self.siril.cd(str(hdr_dir))
-
-        ref_stack = sorted_stacks[0]
-        self._log(f"Reference: {ref_stack.name} ({ref_stack.exposure}s)")
-
-        self.siril.load(str(ref_stack.path))
-        self.siril.save("ref")
-
-        cfg = self.config
-        for i, stack in enumerate(sorted_stacks[1:], 1):
-            self._log(f"Loading {stack.name} ({stack.exposure}s)")
-            self.siril.load(str(stack.path))
-            self.siril.linear_match("ref", cfg.linear_match_low, cfg.linear_match_high)
-            self.siril.save(f"exp{i}")
-
-        current = "ref"
-
-        for i, _stack in enumerate(sorted_stacks[1:], 1):
-            short_name = f"exp{i}"
-            blend_name = f"blend{i}"
-
-            self._log(
-                f"Blending {current} with {short_name} "
-                f"(thresholds: {cfg.hdr_low_threshold}-{cfg.hdr_high_threshold})"
+        sorted_stacks = sorted(stacks, key=lambda s: s.exposure)
+        with fits.open(sorted_stacks[0].path) as hdul:
+            blended = hdul[0].data.astype(np.float32)
+        header = None
+        for stack in sorted_stacks[1:]:
+            self._log(f"Blending into {stack.exposure}s exposure")
+            with fits.open(stack.path) as hdul:
+                longer = hdul[0].data.astype(np.float32)
+                header = hdul[0].header.copy()
+            blended = blend_exposures(
+                blended,
+                longer,
+                self.config.hdr_low_threshold,
+                self.config.hdr_high_threshold,
             )
-
-            formula = build_blend_formula(
-                long_var=current,
-                short_var=short_name,
-                low_threshold=cfg.hdr_low_threshold,
-                high_threshold=cfg.hdr_high_threshold,
-            )
-
-            self.siril.pm(formula, rescale=True)
-            self.siril.save(blend_name)
-            current = blend_name
-
-        self.siril.load(current)
-        self.siril.save(str(output_path))
-
-        if not output_path.exists():
-            if output_path.with_suffix(".fit").exists():
-                return output_path.with_suffix(".fit")
-            raise FileNotFoundError(f"HDR blend output not created: {output_path}")
+        # Siril's subsequent color operations expect [0, 1]. Normalize once,
+        # after every exposure has contributed, preserving recovered highlights.
+        blended = np.maximum(blended, 0)
+        peak = float(blended.max())
+        if peak > 1:
+            blended /= peak
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fits.writeto(output_path, blended, header, overwrite=True)
 
         self._log(f"HDR complete: {output_path.name}")
         return output_path

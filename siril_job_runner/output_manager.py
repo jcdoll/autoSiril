@@ -38,15 +38,6 @@ class ArchiveResult:
     copied: list[tuple[Path, Path]] = field(default_factory=list)
 
 
-@dataclass(frozen=True)
-class CleanResult:
-    """Result of removing processed directories."""
-
-    targets: list[Path]
-    removed: list[Path] = field(default_factory=list)
-    skipped_missing: list[Path] = field(default_factory=list)
-
-
 def resolve_base_path(repo_root: Path) -> Path:
     """Resolve the image data base path from settings.json."""
     settings = load_settings(repo_root)
@@ -232,34 +223,49 @@ def validate_clean_target(path: Path, base_path: Path) -> None:
         raise ValueError(f"Refusing to clean non-target-level directory: {path}")
 
 
-def _unique_paths(paths: list[Path]) -> list[Path]:
-    """Deduplicate paths while preserving order."""
-    unique: list[Path] = []
-    seen: set[Path] = set()
-    for path in paths:
-        if path in seen:
-            continue
-        seen.add(path)
-        unique.append(path)
-    return unique
-
-
-def clean_processed_dirs(paths: list[Path], base_path: Path) -> CleanResult:
-    """Remove processed directories resolved from job files."""
-    targets = _unique_paths([Path(path) for path in paths])
-    removed: list[Path] = []
-    skipped_missing: list[Path] = []
-
+def clean_job_temporary_files(
+    job_path: Path,
+    base_path: Path,
+    settings: Optional[dict] = None,
+) -> list[Path]:
+    """Remove known scratch directories, keeping inputs, stacks and final images."""
+    config = load_job(job_path, settings)
+    processed = base_path / config.output
+    validate_clean_target(processed, base_path)
+    targets = [
+        processed / name
+        for name in (
+            "process",
+            "hdr",
+            "stacks/hdr_register",
+            "stacks/hdr",
+            "stacks/work",
+        )
+    ]
+    inputs = [
+        base_path / directory
+        for directories in config.lights.values()
+        for directory in directories
+    ]
+    inputs.append(base_path / config.config.calibration_base_dir)
+    # Validate the complete selection before deleting anything. rmtree does not
+    # follow symlinks inside a directory; reject symlinks along the target path.
     for target in targets:
-        if not target.exists():
-            skipped_missing.append(target)
-            continue
-        validate_clean_target(target, base_path)
+        for part in (target, *target.parents):
+            if part == base_path:
+                break
+            if part.is_symlink():
+                raise ValueError(f"Refusing to clean through symlink: {part}")
+        resolved = target.resolve()
+        for source in inputs:
+            source = source.resolve()
+            if (
+                resolved == source
+                or resolved in source.parents
+                or source in resolved.parents
+            ):
+                raise ValueError(f"Cleanup overlaps input directory: {source}")
+    existing = [target for target in targets if target.exists()]
+    for target in existing:
         shutil.rmtree(target)
-        removed.append(target)
-
-    return CleanResult(
-        targets=targets,
-        removed=removed,
-        skipped_missing=skipped_missing,
-    )
+    return existing

@@ -52,6 +52,7 @@ class TestParseSequenceFile:
         _write_seq_file(path, 3, [3.0, 4.0, 5.0])
 
         stats = parse_sequence_file(path)
+        assert stats is not None
         assert stats.n_images == 3
         assert stats.median > 0
         assert stats.mean > 0
@@ -67,6 +68,7 @@ class TestParseSequenceFile:
         _write_seq_file(path, 3, [3.0, 3.0, 3.0])
 
         stats = parse_sequence_file(path)
+        assert stats is not None
         assert stats.reference_index == 1  # From S line
 
     def test_parse_histogram(self, temp_dir):
@@ -75,6 +77,7 @@ class TestParseSequenceFile:
         _write_seq_file(path, 10, [3.0] * 5 + [5.0] * 5)
 
         stats = parse_sequence_file(path)
+        assert stats is not None
         assert len(stats.hist_counts) > 0
         assert len(stats.hist_bins) > 0
 
@@ -84,6 +87,7 @@ class TestParseSequenceFile:
         _write_seq_file(path, 3, [3.0, 3.0, 3.0])
 
         stats = parse_sequence_file(path)
+        assert stats is not None
         assert len(stats.roundness_values) == 3
         assert len(stats.star_count_values) == 3
         assert all(stats.roundness_values == 0.85)

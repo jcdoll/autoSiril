@@ -36,7 +36,7 @@ uv run run-job jobs/ --pattern "SH2*"
 uv run run-job jobs/ --log --continue-on-error
 ```
 
-Successful full jobs and `--stage compose` runs copy final output files and job logs into `<base_path>/outputs/<target>_<type>_output`. The target-level `processed*` folders remain disposable working folders and can be cleaned after outputs are archived.
+Successful full jobs and `--stage compose` runs copy final output files and job logs into `<base_path>/outputs/<target>_<type>_output`. After inspecting and approving the output, run `uv run manage-outputs clean jobs/M42.json` to delete temporary processing files. Combined filter/exposure stacks and final images are retained for retries; inputs are never cleanup targets.
 
 Features:
 - Job file-based configuration for reproducible processing

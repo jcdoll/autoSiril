@@ -261,7 +261,8 @@ def get_siril_interface():
         from siril_job_runner.siril_wrapper import SirilWrapper
 
         siril = Siril()
-        siril.Open()
+        if not siril.Open():
+            raise RuntimeError("Siril connection failed")
         return SirilWrapper(siril), siril  # Return wrapper and raw for cleanup
     except ImportError:
         print("WARNING: pysiril not available.")
@@ -536,6 +537,8 @@ Examples:
                     results.append((job_file, "success", None))
 
             except Exception as e:
+                if runner is not None:
+                    runner.logger.error(f"Job failed: {e}")
                 print(f"ERROR: {e}")
                 results.append((job_file, "failed", str(e)))
                 if not args.continue_on_error:

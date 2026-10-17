@@ -276,7 +276,7 @@ def compose_stars(
     shadow_conv: float = 0.0,
     blend_mode: BlendMode = BlendMode.SCREEN,
     weights: tuple[float, float, float] = DEFAULT_WEIGHTS,
-) -> tuple[np.ndarray, dict[str, float]]:
+) -> tuple[np.ndarray, dict[str, float | str]]:
     """
     Compose stars onto a starless image using hybrid scalar/vector engine.
 

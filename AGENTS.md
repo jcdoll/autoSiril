@@ -102,3 +102,9 @@ Engineering tools for internal use.
 ## Plotting
 
 - For python, include `addcopyfighandler` for easy matplotlib copy/paste
+
+## Processing cleanup
+
+- Keep generated processing files until the user has reviewed and approved the output.
+- After approval, use `uv run manage-outputs clean jobs/<target>.json` to remove temporary files.
+- Never delete original captures or calibration inputs. Keep combined stacks and final images.
