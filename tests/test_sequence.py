@@ -160,7 +160,7 @@ class TestComputeAdaptiveThreshold:
     def test_tight_distribution_no_filter(self):
         """Tight distribution should keep all images."""
         np.random.seed(42)
-        values = list(np.random.normal(4.0, 0.1, 20))
+        values = [float(value) for value in np.random.normal(4.0, 0.1, 20)]
         stats = self._make_stats(values)
         result = compute_adaptive_threshold(stats)
         assert result.filter_case == "tight"
@@ -177,7 +177,11 @@ class TestComputeAdaptiveThreshold:
         """Skewed distribution should set threshold."""
         np.random.seed(42)
         # Create right-skewed data
-        values = list(np.random.normal(4.0, 0.3, 15)) + [8.0, 9.0, 10.0]
+        values = [float(value) for value in np.random.normal(4.0, 0.3, 15)] + [
+            8.0,
+            9.0,
+            10.0,
+        ]
         stats = self._make_stats(values)
         result = compute_adaptive_threshold(stats)
         if result.filter_case == "skewed":
@@ -187,8 +191,8 @@ class TestComputeAdaptiveThreshold:
     def test_bimodal_distribution(self):
         """Bimodal distribution should set threshold between modes."""
         np.random.seed(42)
-        mode1 = list(np.random.normal(3.0, 0.3, 25))
-        mode2 = list(np.random.normal(7.0, 0.3, 25))
+        mode1 = [float(value) for value in np.random.normal(3.0, 0.3, 25)]
+        mode2 = [float(value) for value in np.random.normal(7.0, 0.3, 25)]
         stats = self._make_stats(mode1 + mode2)
         result = compute_adaptive_threshold(stats)
         assert result.filter_case == "bimodal"

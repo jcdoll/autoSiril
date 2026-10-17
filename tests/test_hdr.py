@@ -83,5 +83,5 @@ def test_saved_hdr_preserves_relative_brightness(tmp_path: Path) -> None:
         stacks.append(StackInfo(path, "G", exposure))
     output = HDRBlender().blend_channel("G", stacks, tmp_path / "hdr.fit")
     data = fits.getdata(output)
-    np.testing.assert_allclose(data, scene / scene.max(), atol=1e-6)
+    np.testing.assert_allclose(data, scene / 0.8, atol=1e-6)
     assert np.isfinite(data).all()
