@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -132,13 +133,23 @@ def discover_deliverables(processed_dir: Path) -> list[Path]:
 
 
 def archive_outputs(output: ManagedJobOutput) -> ArchiveResult:
-    """Copy final deliverables and logs to the shared archive directory."""
+    """Copy images with target/date names, keeping same-stem formats together."""
     deliverables = discover_deliverables(output.processed_dir)
     copied: list[tuple[Path, Path]] = []
+    export_times: dict[str, float] = {}
+    for source in deliverables:
+        if source.suffix.lower() in FINAL_OUTPUT_SUFFIXES:
+            timestamp = source.stat().st_mtime
+            if source.stem not in export_times or timestamp < export_times[source.stem]:
+                export_times[source.stem] = timestamp
 
     output.archive_dir.mkdir(parents=True, exist_ok=True)
     for source in deliverables:
-        destination = output.archive_dir / source.name
+        name = source.name
+        if source.suffix.lower() in FINAL_OUTPUT_SUFFIXES:
+            date = datetime.fromtimestamp(export_times[source.stem]).strftime("%Y%m%d")
+            name = f"{output.target_name}_{date}_{source.name}"
+        destination = output.archive_dir / name
         shutil.copy2(source, destination)
         if destination.stat().st_size != source.stat().st_size:
             raise OSError(f"Copy verification failed: {source} -> {destination}")

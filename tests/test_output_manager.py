@@ -1,6 +1,8 @@
 """Tests for output archive and cleanup helpers."""
 
 import json
+import os
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -92,14 +94,16 @@ def test_archive_outputs_copies_and_verifies_files(tmp_path: Path) -> None:
     processed = base_path / "M42" / "processed_lrgb"
     processed.mkdir(parents=True)
     (processed / "lrgb_veralux.jpg").write_text("jpg", encoding="utf-8")
+    timestamp = datetime(2026, 10, 17, 23, 59).timestamp()
+    os.utime(processed / "lrgb_veralux.jpg", (timestamp, timestamp))
     output = resolve_job_output(job_path, base_path, settings={})
 
     result = archive_outputs(output)
 
     assert [(src.name, dst.name) for src, dst in result.copied] == [
-        ("lrgb_veralux.jpg", "lrgb_veralux.jpg")
+        ("lrgb_veralux.jpg", "M42_20261017_lrgb_veralux.jpg")
     ]
-    assert (output.archive_dir / "lrgb_veralux.jpg").read_text(
+    assert (output.archive_dir / "M42_20261017_lrgb_veralux.jpg").read_text(
         encoding="utf-8"
     ) == "jpg"
 
@@ -120,6 +124,8 @@ def test_archive_composition_outputs_returns_archive_paths(tmp_path: Path) -> No
         "job_log_M42_20260101.txt",
     ]:
         (processed / name).write_text(name, encoding="utf-8")
+        timestamp = datetime(2026, 10, 17, 23, 59).timestamp()
+        os.utime(processed / name, (timestamp, timestamp))
     output = resolve_job_output(job_path, base_path, settings={})
     result = CompositionResult(
         linear_path=processed / "lrgb_autostretch.fit",
@@ -135,11 +141,16 @@ def test_archive_composition_outputs_returns_archive_paths(tmp_path: Path) -> No
     assert (
         archive_result.output.archive_dir == base_path / "outputs" / "M42_lrgb_output"
     )
-    assert archived.linear_path == output.archive_dir / "lrgb_autostretch.fit"
-    assert archived.linear_pcc_path == output.archive_dir / "rgb_linear_spcc.fit"
-    assert archived.auto_fit == output.archive_dir / "lrgb_veralux.fit"
-    assert archived.auto_tif == output.archive_dir / "lrgb_veralux.tif"
-    assert archived.auto_jpg == output.archive_dir / "lrgb_veralux.jpg"
+    assert (
+        archived.linear_path == output.archive_dir / "M42_20261017_lrgb_autostretch.fit"
+    )
+    assert (
+        archived.linear_pcc_path
+        == output.archive_dir / "M42_20261017_rgb_linear_spcc.fit"
+    )
+    assert archived.auto_fit == output.archive_dir / "M42_20261017_lrgb_veralux.fit"
+    assert archived.auto_tif == output.archive_dir / "M42_20261017_lrgb_veralux.tif"
+    assert archived.auto_jpg == output.archive_dir / "M42_20261017_lrgb_veralux.jpg"
     assert archived.stacks_dir == stacks
     assert (output.archive_dir / "job_log_M42_20260101.txt").exists()
 
@@ -275,9 +286,14 @@ def test_cli_archive_copies_job_outputs(
     processed.mkdir(parents=True)
     (processed / "lrgb_veralux.jpg").write_text("jpg", encoding="utf-8")
 
+    timestamp = datetime(2026, 10, 17, 23, 59).timestamp()
+    os.utime(processed / "lrgb_veralux.jpg", (timestamp, timestamp))
+
     exit_code = main(["archive", str(job_path)])
 
-    archived = base_path / "outputs" / "M42_lrgb_output" / "lrgb_veralux.jpg"
+    archived = (
+        base_path / "outputs" / "M42_lrgb_output" / "M42_20261017_lrgb_veralux.jpg"
+    )
     assert exit_code == 0
     assert archived.read_text(encoding="utf-8") == "jpg"
 
@@ -329,3 +345,31 @@ def test_cli_clean_all_only_uses_job_files(
     assert job_output.exists()
     assert not (job_output / "process").exists()
     assert unmanaged_output.exists()
+
+
+def test_archive_keeps_export_date_and_distinct_variants(tmp_path: Path) -> None:
+    """Formats spanning midnight share a date, even when archived again later."""
+    job = write_job(tmp_path)
+    output = resolve_job_output(job, tmp_path / "astro", settings={})
+    output.processed_dir.mkdir(parents=True)
+    for name, moment in [
+        ("lrgb_autostretch.fit", datetime(2026, 10, 17, 23, 59)),
+        ("lrgb_autostretch.jpg", datetime(2026, 10, 18, 0, 1)),
+        ("lrgb_autostretch_starless.jpg", datetime(2026, 10, 18, 0, 2)),
+    ]:
+        source = output.processed_dir / name
+        source.write_text(name)
+        timestamp = moment.timestamp()
+        os.utime(source, (timestamp, timestamp))
+
+    first = archive_outputs(output)
+    second = archive_outputs(output)
+
+    expected = {
+        "M42_20261017_lrgb_autostretch.fit": "lrgb_autostretch.fit",
+        "M42_20261017_lrgb_autostretch.jpg": "lrgb_autostretch.jpg",
+        "M42_20261018_lrgb_autostretch_starless.jpg": "lrgb_autostretch_starless.jpg",
+    }
+    assert {p.name: p.read_text() for _, p in first.copied} == expected
+    assert first.copied == second.copied
+    assert {p.name for p in output.archive_dir.iterdir()} == set(expected)
