@@ -24,3 +24,16 @@ def test_appended_command_status_returns(status: str, expected: bool) -> None:
 
     connection.Execute.side_effect = execute
     assert wrapper.makepsf() is expected
+
+
+def test_plate_solve_refreshes_coordinates_without_flipping() -> None:
+    """Reject the stale-WCS shortcut and keep RGB aligned with luminance."""
+    connection = MagicMock()
+
+    def solve(command: str) -> bool:
+        """Model Siril's existing-solution shortcut and orientation control."""
+        arguments = command.split()
+        return arguments[0] == "platesolve" and {"-force", "-noflip"} <= set(arguments)
+
+    connection.Execute.side_effect = solve
+    assert SirilWrapper(connection).platesolve()

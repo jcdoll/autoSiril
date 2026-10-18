@@ -69,10 +69,11 @@ class SirilColorMixin:
         """
         Plate solve the loaded image.
 
-        Uses FITS header metadata (focal length, pixel size, coordinates)
-        if available. Returns True if solve succeeds.
+        Refresh coordinates after registration and cropping. Preserve orientation
+        so the RGB image remains aligned with the separate luminance image.
+        Uses header metadata as the initial estimate and Gaia reference stars.
         """
-        return self.execute("platesolve")
+        return self.execute("platesolve -force -noflip -catalog=gaia")
 
     def pcc(self, catalog: str = "nomad") -> bool:
         """
