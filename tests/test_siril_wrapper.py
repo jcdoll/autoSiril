@@ -37,3 +37,20 @@ def test_plate_solve_refreshes_coordinates_without_flipping() -> None:
 
     connection.Execute.side_effect = solve
     assert SirilWrapper(connection).platesolve()
+
+
+def test_starnet_failure_does_not_report_success() -> None:
+    """An enabled star-removal step must fail the job when Siril rejects it."""
+    connection = MagicMock()
+    connection.Execute.return_value = False
+    with pytest.raises(
+        RuntimeError, match="StarNet failed.*starless outputs are incomplete"
+    ):
+        SirilWrapper(connection).starnet()
+
+
+def test_starnet_success() -> None:
+    """A successful external star-removal command completes normally."""
+    connection = MagicMock()
+    connection.Execute.return_value = True
+    SirilWrapper(connection).starnet()

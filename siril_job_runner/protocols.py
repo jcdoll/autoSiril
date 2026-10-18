@@ -176,7 +176,7 @@ class SirilInterface(Protocol):
     # Star removal
     def starnet(
         self, stretch: bool = True, upscale: bool = False, stride: int | None = None
-    ) -> bool: ...
+    ) -> None: ...
 
     # Pixel math
     def pm(

@@ -192,6 +192,10 @@ Channel scale expressions can be applied before palette formulas via `palette_h_
 
 StarNet runs on LINEAR data with internal MTF stretch (`stretch=True`).
 
+It requires a separately installed CLI executable configured in Siril; see
+[setup and recovery](starnet.md). When enabled, command failure stops the job
+instead of substituting original images or skipping requested starless outputs.
+
 Broadband:
 - StarNet runs on RGB composite and L channel separately
 - Stars extracted from RGB

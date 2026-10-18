@@ -59,7 +59,7 @@ def _separate_stars_linear(
     all_channels: list[str],
     registered_dir: Path,
     log_fn: Callable[[str], None],
-) -> str | None:
+) -> str:
     """
     Separate stars from all linear channels using StarNet.
 
@@ -68,7 +68,7 @@ def _separate_stars_linear(
     designated star channel.
 
     Returns the channel name used as star source (for later compositing),
-    or None if star separation failed.
+    raising if star separation fails.
     """
     log_fn("  Star separation enabled, running StarNet on linear data...")
 
@@ -81,20 +81,16 @@ def _separate_stars_linear(
     # Run StarNet on all linear channels
     for ch in all_channels:
         siril.load(f"{ch}_linear")
-        if siril.starnet(stretch=True):  # Linear data, needs internal stretch
-            siril.save(f"{ch}_linear_starless")
-            # StarNet creates starmask_<filename>.fit in the working directory
-            starmask_path = registered_dir / f"starmask_{ch}_linear.fit"
-            if starmask_path.exists() and ch == star_source_ch:
-                siril.load(str(starmask_path))
-                siril.save("stars_source")
-                log_fn(f"    {ch}: starless saved, stars extracted (source)")
-            else:
-                log_fn(f"    {ch}: starless saved")
+        siril.starnet(stretch=True)  # Linear data, needs internal stretch
+        siril.save(f"{ch}_linear_starless")
+        # StarNet creates starmask_<filename>.fit in the working directory
+        starmask_path = registered_dir / f"starmask_{ch}_linear.fit"
+        if starmask_path.exists() and ch == star_source_ch:
+            siril.load(str(starmask_path))
+            siril.save("stars_source")
+            log_fn(f"    {ch}: starless saved, stars extracted (source)")
         else:
-            log_fn(f"    {ch}: StarNet failed, using original")
-            siril.load(f"{ch}_linear")
-            siril.save(f"{ch}_linear_starless")
+            log_fn(f"    {ch}: starless saved")
 
     return star_source_ch
 

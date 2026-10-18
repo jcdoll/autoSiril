@@ -137,9 +137,9 @@ class SirilColorMixin:
         stretch: bool = True,
         upscale: bool = False,
         stride: int | None = None,
-    ) -> bool:
+    ) -> None:
         """
-        Run StarNet for star removal.
+        Run StarNet for star removal, raising if requested outputs cannot be made.
 
         Args:
             stretch: Apply internal MTF stretch (required for linear input)
@@ -153,7 +153,12 @@ class SirilColorMixin:
             cmd += " -upscale"
         if stride is not None:
             cmd += f" -stride={stride}"
-        return self.execute(cmd)
+        if not self.execute(cmd):
+            raise RuntimeError(
+                "StarNet failed; requested starless outputs are incomplete. "
+                "Check Siril's StarNet executable setting and command log. "
+                "See docs/starnet.md for setup and retry instructions."
+            )
 
     # Pixel math
 

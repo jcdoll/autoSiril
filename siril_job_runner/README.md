@@ -46,6 +46,12 @@ uv run run-job jobs/M42.json --seq-stats
 
 pysiril is required for actual processing. It is installed from the GitLab repository (see pyproject.toml). Make sure Siril is running with scripting enabled before running jobs.
 
+### StarNet Installation
+
+For star removal, first complete [StarNet setup](../docs/starnet.md). An enabled
+StarNet step that fails now fails the job; baseline images alone are not a
+successful starless run.
+
 ### Siril Catalog Installation (Recommended)
 
 Install local catalogs for faster processing and offline capability.

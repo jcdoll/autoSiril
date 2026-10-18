@@ -75,6 +75,9 @@ cd autoSiril
 uv sync
 ```
 
+Star removal also requires the standalone StarNet CLI configured in Siril.
+Follow [StarNet setup and recovery](docs/starnet.md); `uv sync` does not install it.
+
 ## Development
 
 Requires Python 3.11+.
