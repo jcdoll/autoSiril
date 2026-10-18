@@ -81,6 +81,10 @@
           "enum": ["HOO", "SHO", "SHO_FORAXX", "SHO_DYNAMIC", "SHO_GOLD", "SHO_WARM", "SHO_BLUEGOLD", "SHO_FORAXX_DYNAMIC", "HOO_FORAXX_DYNAMIC"],
           "description": "Narrowband palette for SHO/HOO types (default: SHO)"
         },
+        "flip_calibration_vertical": {
+          "type": "boolean",
+          "description": "Flip working dark and flat copies vertically to match inverted light frames"
+        },
         "dark_temp_override": {
           "type": "number",
           "description": "Force using darks at this temperature (Celsius)"

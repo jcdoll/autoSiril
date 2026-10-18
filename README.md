@@ -36,7 +36,14 @@ uv run run-job jobs/ --pattern "SH2*"
 uv run run-job jobs/ --log --continue-on-error
 ```
 
-Successful full jobs and `--stage compose` runs copy final output files and job logs into `<base_path>/outputs/<target>_<type>_output`. The target-level `processed*` folders remain disposable working folders and can be cleaned after outputs are archived.
+Successful full jobs and `--stage compose` runs copy final output files and job logs into `<base_path>/outputs/<target>_<type>_output`. After inspecting and approving the output, run `uv run manage-outputs clean jobs/M42.json` to delete temporary processing files. Combined filter/exposure stacks and final images are retained for retries; inputs are never cleanup targets.
+
+Archived images include the target, export date, and variant, for example
+`M42_20261017_lrgb_autostretch_starless.jpg`. Matching FITS, TIFF, and JPEG files
+use the earliest modification date in their same-name group, in local time.
+Archiving later preserves that date; it is not the observation date. Repeated
+exports with the same name and date replace the archived copy. Working filenames
+and timestamped logs stay unchanged, and existing generic archive files remain.
 
 Features:
 - Job file-based configuration for reproducible processing
@@ -74,6 +81,9 @@ git clone https://github.com/yourusername/autoSiril.git
 cd autoSiril
 uv sync
 ```
+
+Star removal also requires the standalone StarNet CLI configured in Siril.
+Follow [StarNet setup and recovery](docs/starnet.md); `uv sync` does not install it.
 
 ## Development
 

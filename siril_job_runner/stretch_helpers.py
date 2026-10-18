@@ -8,6 +8,9 @@ Used by both broadband and narrowband composition modules.
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
+import numpy as np
+from astropy.io import fits
+
 from .config import Config, StretchMethod
 
 if TYPE_CHECKING:
@@ -160,10 +163,21 @@ def save_all_formats(
     tif_path = output_dir / f"{basename}.tif"
     jpg_path = output_dir / f"{basename}.jpg"
 
-    siril.save(str(output_dir / basename))
-    siril.load(str(fit_path))
-    siril.savetif(str(output_dir / basename), astro=True, deflate=True)
-    siril.savejpg(str(output_dir / basename), quality=90)
+    if not siril.save(str(output_dir / basename)):
+        raise RuntimeError(f"Failed to save {fit_path}")
+    with fits.open(fit_path) as hdul:
+        data = hdul[0].data
+        if data is None or data.ndim not in (2, 3) or not np.isfinite(data).all():
+            raise ValueError(f"Invalid final FITS image: {fit_path}")
+    if not siril.load(str(fit_path)):
+        raise RuntimeError(f"Failed to reload {fit_path}")
+    if not siril.savetif(str(output_dir / basename), astro=True, deflate=True):
+        raise RuntimeError(f"Failed to save {tif_path}")
+    if not siril.savejpg(str(output_dir / basename), quality=90):
+        raise RuntimeError(f"Failed to save {jpg_path}")
+    for path in (fit_path, tif_path, jpg_path):
+        if not path.is_file() or path.stat().st_size == 0:
+            raise ValueError(f"Missing or empty final image: {path}")
 
     log_fn(f"Saved: {basename}.fit, {basename}.tif, {basename}.jpg")
 

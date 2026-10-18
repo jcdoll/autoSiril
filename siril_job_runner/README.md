@@ -46,6 +46,12 @@ uv run run-job jobs/M42.json --seq-stats
 
 pysiril is required for actual processing. It is installed from the GitLab repository (see pyproject.toml). Make sure Siril is running with scripting enabled before running jobs.
 
+### StarNet Installation
+
+For star removal, first complete [StarNet setup](../docs/starnet.md). An enabled
+StarNet step that fails now fails the job; baseline images alone are not a
+successful starless run.
+
 ### Siril Catalog Installation (Recommended)
 
 Install local catalogs for faster processing and offline capability.
@@ -168,7 +174,11 @@ Settings are merged with job options (job options take precedence).
 
 Siril writes intermediate files and top-level final products into each job's resolved processed folder, such as `<base_path>/M31/processed_lrgb`. Successful full jobs and `--stage compose` runs automatically copy the final top-level outputs and job logs into `<base_path>/outputs/<target>_<type>_output`.
 
-The `outputs/` folder is the durable location to keep or share. The target-level `processed*` folders are disposable working folders and can be cleaned after outputs are archived.
+Keep `outputs/` for final images and `<job output>/stacks/stack_<filter>_<exposure>s.fit` for composition retries. After reviewing and approving the output, use the separate cleanup command below. It deletes only `process/`, `hdr/`, `stacks/hdr_register/`, `stacks/hdr/` and `stacks/work/` inside that job's output directory. It keeps inputs, combined stacks, final images and logs. It does not record approval; the person or agent running it must obtain approval first.
+
+M42 enables `flip_calibration_vertical` because its light frames have the opposite vertical orientation to its calibration masters, as checked against detector defects. This creates flipped working calibration copies without changing the originals. Its existing -10 C dark override remains explicit: matching colder darks are unavailable, and validation warns about temperature mismatches. Groups requiring different calibration masters fail rather than silently using the first frame's selection.
+
+To retry composition from the retained stacks, use `uv run run-job jobs/M42.json --stage compose`. If inputs, calibration or preprocessing settings change, use `--force` to rebuild: stack caching only compares file modification times.
 
 List every job file with its resolved processed folder, existence status, and archive destination:
 
@@ -182,13 +192,13 @@ Manually repeat the archive step for an existing processed folder:
 uv run manage-outputs archive jobs/M42.json
 ```
 
-Clean one job's processed folder:
+After output approval, remove one job's temporary files:
 
 ```bash
 uv run manage-outputs clean jobs/M42.json
 ```
 
-Clean processed folders resolved from every job file in `jobs/`:
+Remove temporary files for every job in `jobs/` (only after approving those outputs):
 
 ```bash
 uv run manage-outputs clean --all

@@ -29,6 +29,7 @@
     ]
   },
   "options": {
+    "flip_calibration_vertical": true,
     "saturation_amount": 0.15,
     "dark_temp_override": -10,
     "stretch_method": "veralux",

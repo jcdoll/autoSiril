@@ -41,6 +41,9 @@
       "M42/2025_01_29/R180"
     ],
     "G": [
+      "M42/2025_01_17/G10",
+      "M42/2025_01_21/G10",
+      "M42/2025_01_22/G10",
       "M42/2025_01_16/G30",
       "M42/2025_01_16/G180",
       "M42/2025_01_17/G180",
@@ -67,13 +70,17 @@
   },
   "options": {
     "temp_tolerance": 2,
+    "flip_calibration_vertical": true,
     "dark_temp_override": -10,
     "hdr_low_threshold": 0.7,
     "hdr_high_threshold": 0.9,
-    "saturation_amount": 1.0,
     "autostretch_targetbg": 0.12,
     "autostretch_mtf_low": 0.0,
     "autostretch_mtf_mid": 0.55,
-    "autostretch_mtf_high": 0.95
-  }
+    "autostretch_mtf_high": 0.95,
+    "pre_stack_subsky_method": "poly",
+    "pre_stack_subsky_degree": 1,
+    "post_stack_subsky_method": "none"
+  },
+  "output": "M42/processed_lrgb_corrected"
 }

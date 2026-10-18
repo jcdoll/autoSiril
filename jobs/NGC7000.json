@@ -24,6 +24,7 @@
     ]
   },
   "options": {
+    "flip_calibration_vertical": true,
     "dark_temp_override": -10,
     "autostretch_targetbg": 0.10,
     "autostretch_mtf_low": 0.0,

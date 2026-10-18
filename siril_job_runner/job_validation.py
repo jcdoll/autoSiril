@@ -67,6 +67,17 @@ def validate_job(
             message="No light frames found",
         )
 
+    if config.dark_temp_override is not None:
+        mismatched = sum(
+            abs(frame.temperature - config.dark_temp_override) > config.temp_tolerance
+            for frame in all_frames
+        )
+        if mismatched:
+            logger.warning(
+                f"Dark temperature override {config.dark_temp_override} C applies to "
+                f"{mismatched} frames outside temperature tolerance"
+            )
+
     # Check saturation levels by exposure
     by_exposure: dict[float, list[FrameInfo]] = defaultdict(list)
     for frame in all_frames:

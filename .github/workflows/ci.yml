@@ -18,13 +18,16 @@ jobs:
       - uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --extra validation
 
       - name: Lint
-        run: uvx ruff check siril_job_runner/ tests/ --extend-select I,B,SIM,C4,ISC,PIE
+        run: uv run ruff check .
 
       - name: Format check
-        run: uvx ruff format --check siril_job_runner/ tests/
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run ty check
 
       - name: Test
         run: uv run pytest --cov=siril_job_runner --cov-report=term-missing

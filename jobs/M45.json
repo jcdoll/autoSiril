@@ -25,6 +25,7 @@
     ]
   },
   "options": {
+    "flip_calibration_vertical": true,
     "dark_temp_override": -10,
     "saturation_amount": 0.25,
     "stretch_compare": true,

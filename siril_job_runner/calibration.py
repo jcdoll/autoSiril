@@ -41,10 +41,12 @@ class CalibrationManager(CalibrationPathsMixin):
     def build_bias_master(self, siril: SirilInterface) -> Path:
         """Build bias master from raw frames."""
         status = self.check_bias()
+        if status.master_path is None:
+            raise ValueError(status.message)
         if status.exists:
             return status.master_path
 
-        if not status.can_build:
+        if not status.can_build or status.raw_path is None:
             raise ValueError(status.message)
 
         self._log(f"Building bias master: {status.master_path.name}")
@@ -83,10 +85,12 @@ class CalibrationManager(CalibrationPathsMixin):
     ) -> Path:
         """Build dark master from raw frames."""
         status = self.check_dark(exposure, temp)
+        if status.master_path is None:
+            raise ValueError(status.message)
         if status.exists:
             return status.master_path
 
-        if not status.can_build:
+        if not status.can_build or status.raw_path is None:
             raise ValueError(status.message)
 
         self._log(f"Building dark master: {status.master_path.name}")
@@ -125,10 +129,12 @@ class CalibrationManager(CalibrationPathsMixin):
     ) -> Path:
         """Build flat master from raw frames (calibrated with bias)."""
         status = self.check_flat(filter_name)
+        if status.master_path is None:
+            raise ValueError(status.message)
         if status.exists:
             return status.master_path
 
-        if not status.can_build:
+        if not status.can_build or status.raw_path is None:
             raise ValueError(status.message)
 
         self._log(f"Building flat master: {status.master_path.name}")

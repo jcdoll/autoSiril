@@ -111,6 +111,7 @@ def compute_adaptive_threshold(
 
     # Case 1: Bimodal distribution - two distinct populations
     if is_bimodal and gmm2 is not None:
+        assert gmm2.means_ is not None and gmm2.covariances_ is not None
         means = gmm2.means_.flatten()
         stds = np.sqrt(gmm2.covariances_.flatten())
         weights = gmm2.weights_

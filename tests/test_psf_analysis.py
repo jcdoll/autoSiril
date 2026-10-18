@@ -79,6 +79,7 @@ class TestAnalyzePSF:
 
         stats = analyze_psf(path)
         assert stats is not None
+        assert stats is not None
         assert stats.dimensions == (31, 31)
         assert stats.peak_value > 0.9
         assert stats.peak_location == (15, 15)
@@ -100,6 +101,7 @@ class TestAnalyzePSF:
         hdu.writeto(path)
 
         stats = analyze_psf(path)
+        assert stats is not None
         assert abs(stats.ellipticity - 1.0) < 0.1
 
 
@@ -117,6 +119,7 @@ class TestFormatPSFStats:
         hdu.writeto(path)
 
         stats = analyze_psf(path)
+        assert stats is not None
         lines = format_psf_stats(stats)
         assert len(lines) == 3
         assert "Dimensions" in lines[0]

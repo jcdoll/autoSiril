@@ -5,6 +5,7 @@ pysiril uses Execute() for all commands. This wrapper provides
 typed methods that build command strings internally.
 """
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +38,20 @@ class SirilWrapper(
             siril: pysiril.siril.Siril instance (already Open()'d)
         """
         self._siril = siril
+        # Siril can omit a newline before an error status (notably makepsf).
+        # pysiril otherwise treats that status as log text and waits forever.
+        original_log = siril.tr.retoursiril
+
+        def receive_log(line: str) -> None:
+            """Recover a command status appended to a Siril log message."""
+            match = re.search(r"status: (error|success)(?: .*)?$", line)
+            if match is not None:
+                original_log(line[: match.start()])
+                siril.qStatus.put(f"status: {match.group(1)}")
+            else:
+                original_log(line)
+
+        siril.tr.retoursiril = receive_log
 
     def execute(self, command: str) -> bool:
         """Execute a raw Siril command string."""

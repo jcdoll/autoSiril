@@ -2,6 +2,7 @@
 Protocol definitions for Siril interfaces.
 """
 
+from pathlib import Path
 from typing import Optional, Protocol
 
 
@@ -19,6 +20,8 @@ class SirilInterface(Protocol):
     ) -> bool: ...
     def savejpg(self, path: str, quality: int = 90) -> bool: ...
     def close(self) -> bool: ...
+    def split(self, r_file: str, g_file: str, b_file: str) -> bool: ...
+    def get_image_stats(self, filepath: Path) -> dict[str, float]: ...
 
     # Conversion and sequences
     def convert(self, name: str, out: Optional[str] = None) -> bool: ...
@@ -164,12 +167,16 @@ class SirilInterface(Protocol):
         red_filter: str,
         green_filter: str,
         blue_filter: str,
+        whiteref: str = "Average Spiral Galaxy",
+        bgtol_upper: float = 2.0,
+        bgtol_lower: float = 2.8,
+        obsheight: int = 1000,
     ) -> bool: ...
 
     # Star removal
     def starnet(
         self, stretch: bool = True, upscale: bool = False, stride: int | None = None
-    ) -> bool: ...
+    ) -> None: ...
 
     # Pixel math
     def pm(

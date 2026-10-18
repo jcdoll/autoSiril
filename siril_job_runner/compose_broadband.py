@@ -432,46 +432,31 @@ def compose_lrgb(
         # Step 6-7: Star removal on RGB and L (linear phase)
         log_fn("Removing stars from RGB (linear)...")
         siril.load(rgb_source)
-        if siril.starnet(
+        siril.starnet(
             stretch=cfg.starnet_stretch,
             upscale=cfg.starnet_upscale,
             stride=cfg.starnet_stride,
-        ):
-            siril.save("rgb_starless")
-            # StarNet creates starmask file in current working directory
-            stars_path = working_dir / f"starmask_{rgb_source}.fit"
-            if stars_path.exists():
-                siril.load(str(stars_path))
-                siril.save("rgb_stars")
-                # Save stars checkpoint to output
-                siril.save(str(output_dir / "rgb_stars"))
-                log_fn("  Saved rgb_stars.fit checkpoint")
-            log_fn("  RGB starless and stars saved")
-        else:
-            log_fn("  StarNet failed on RGB, skipping starless outputs")
-            # Return early without starless outputs
-            return CompositionResult(
-                linear_path=output_dir / "lrgb_autostretch.fit",
-                linear_pcc_path=rgb_spcc_path,
-                auto_fit=output_dir / "lrgb_veralux.fit",
-                auto_tif=output_dir / "lrgb_veralux.tif",
-                auto_jpg=output_dir / "lrgb_veralux.jpg",
-                stacks_dir=stacks_dir,
-            )
+        )
+        siril.save("rgb_starless")
+        # StarNet creates starmask file in current working directory
+        stars_path = working_dir / f"starmask_{rgb_source}.fit"
+        if stars_path.exists():
+            siril.load(str(stars_path))
+            siril.save("rgb_stars")
+            # Save stars checkpoint to output
+            siril.save(str(output_dir / "rgb_stars"))
+            log_fn("  Saved rgb_stars.fit checkpoint")
+        log_fn("  RGB starless and stars saved")
 
         log_fn("Removing stars from L (linear)...")
         siril.load(l_source)
-        if siril.starnet(
+        siril.starnet(
             stretch=cfg.starnet_stretch,
             upscale=cfg.starnet_upscale,
             stride=cfg.starnet_stride,
-        ):
-            siril.save("L_starless")
-            log_fn("  L starless saved")
-        else:
-            log_fn("  StarNet failed on L, using original L for starless output")
-            siril.load(l_source)
-            siril.save("L_starless")
+        )
+        siril.save("L_starless")
+        log_fn("  L starless saved")
 
         # Prepare stars (clip background)
         log_fn("Preparing RGB stars (clip background)...")
@@ -740,28 +725,18 @@ def compose_rgb(
         # Star removal
         log_fn("Removing stars from RGB (linear)...")
         siril.load(rgb_source)
-        if siril.starnet(
+        siril.starnet(
             stretch=cfg.starnet_stretch,
             upscale=cfg.starnet_upscale,
             stride=cfg.starnet_stride,
-        ):
-            siril.save("rgb_starless")
-            # StarNet creates starmask file in current working directory
-            stars_path = working_dir / f"starmask_{rgb_source}.fit"
-            if stars_path.exists():
-                siril.load(str(stars_path))
-                siril.save("rgb_stars")
-                siril.save(str(output_dir / "rgb_stars"))
-        else:
-            log_fn("StarNet failed, skipping starless outputs")
-            return CompositionResult(
-                linear_path=linear_path,
-                linear_pcc_path=linear_pcc_path,
-                auto_fit=output_dir / "rgb_veralux.fit",
-                auto_tif=output_dir / "rgb_veralux.tif",
-                auto_jpg=output_dir / "rgb_veralux.jpg",
-                stacks_dir=stacks_dir,
-            )
+        )
+        siril.save("rgb_starless")
+        # StarNet creates starmask file in current working directory
+        stars_path = working_dir / f"starmask_{rgb_source}.fit"
+        if stars_path.exists():
+            siril.load(str(stars_path))
+            siril.save("rgb_stars")
+            siril.save(str(output_dir / "rgb_stars"))
 
         # Prepare stars
         siril.load("rgb_stars")

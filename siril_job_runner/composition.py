@@ -6,6 +6,7 @@ Based on LRGB_pre.ssf and LRGB_compose.ssf workflows.
 """
 
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
@@ -282,7 +283,7 @@ def compose_and_stretch(
         # This ensures channels are aligned before blending different exposures
         stacks = _cross_register_stacks(siril, stacks, output_dir, config, logger)
 
-        blender = HDRBlender(siril, output_dir, config, logger)
+        blender = HDRBlender(config, logger)
 
         # Blend all channels (now using pre-registered stacks)
         hdr_stacks_dir = stacks_dir / "hdr"
@@ -308,10 +309,12 @@ def compose_and_stretch(
     )
 
     if job_type == "LRGB":
-        return composer.compose_lrgb(stacks, is_hdr=hdr_mode)
+        result = composer.compose_lrgb(stacks, is_hdr=hdr_mode)
     elif job_type == "RGB":
-        return composer.compose_rgb(stacks)
+        result = composer.compose_rgb(stacks)
     elif job_type in ("SHO", "HOO", "LSHO", "LHOO"):
-        return composer.compose_narrowband(stacks, job_type=job_type)
+        result = composer.compose_narrowband(stacks, job_type=job_type)
     else:
         raise ValueError(f"Unknown job type: {job_type}")
+
+    return replace(result, stacks_dir=output_dir / "stacks")
