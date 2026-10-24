@@ -168,11 +168,13 @@ class JobRunner:
             logger=self.logger,
         )
 
-    def run_composition(self) -> Optional[CompositionResult]:
+    def run_composition(
+        self, stacks: dict[str, Path] | None = None
+    ) -> Optional[CompositionResult]:
         """
         Run composition and stretching.
 
-        Discovers stacks from output_dir/stacks/ directory.
+        Uses current preprocessing outputs, or discovers retained stacks for compose-only.
         HDR mode is handled automatically - multiple exposures per filter are
         blended using brightness-weighted HDR before composition.
         """
@@ -187,6 +189,7 @@ class JobRunner:
             job_type=self.config.job_type,
             config=self.config.config,
             logger=self.logger,
+            stack_paths=None if stacks is None else list(stacks.values()),
         )
 
     def run(self) -> Optional[CompositionResult]:
@@ -205,10 +208,10 @@ class JobRunner:
         self.run_calibration(validation)
 
         # Stage 2: Preprocessing (now uses frames from validation)
-        self.run_preprocessing(validation.frames)
+        stacks = self.run_preprocessing(validation.frames)
 
-        # Stage 3 & 4: Composition and Stretching (discovers stacks from output dir)
-        result = self.run_composition()
+        # Compose only the stacks selected by this run.
+        result = self.run_composition(stacks)
 
         self.logger.info(f"Job complete: {self.config.name}")
 

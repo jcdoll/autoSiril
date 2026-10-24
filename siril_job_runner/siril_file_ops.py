@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Optional
 
 
+def quote_siril_arg(value: str) -> str:
+    """Quote a complete Siril path argument, including any option prefix."""
+    if any(char in value for char in ('"', "\n", "\r")):
+        raise ValueError(
+            "Siril path arguments cannot contain double quotes or newlines"
+        )
+    return '"' + value.replace("\\", "/") + '"'
+
+
 def link_or_copy(src: Path, dst: Path) -> None:
     """
     Create symlink or copy file if symlinks unavailable (Windows without privileges).
@@ -40,19 +49,19 @@ class SirilFileOpsMixin:
         """Change working directory."""
         # Normalize path separators for Siril
         path = path.replace("\\", "/")
-        return self.execute(f"cd {path}")
+        return self.execute(f"cd {quote_siril_arg(path)}")
 
     # File operations
 
     def load(self, path: str) -> bool:
         """Load an image file."""
         path = path.replace("\\", "/")
-        return self.execute(f"load {path}")
+        return self.execute(f"load {quote_siril_arg(path)}")
 
     def save(self, path: str) -> bool:
         """Save current image."""
         path = path.replace("\\", "/")
-        return self.execute(f"save {path}")
+        return self.execute(f"save {quote_siril_arg(path)}")
 
     def savetif(self, path: str, astro: bool = False, deflate: bool = False) -> bool:
         """Save as TIFF."""
@@ -63,12 +72,12 @@ class SirilFileOpsMixin:
         if deflate:
             opts.append("-deflate")
         opts_str = " ".join(opts)
-        return self.execute(f"savetif {path} {opts_str}".strip())
+        return self.execute(f"savetif {quote_siril_arg(path)} {opts_str}".strip())
 
     def savejpg(self, path: str, quality: int = 90) -> bool:
         """Save as JPEG."""
         path = path.replace("\\", "/")
-        return self.execute(f"savejpg {path} {quality}")
+        return self.execute(f"savejpg {quote_siril_arg(path)} {quality}")
 
     def close(self) -> bool:
         """Close current image."""
@@ -78,10 +87,10 @@ class SirilFileOpsMixin:
 
     def convert(self, name: str, out: Optional[str] = None) -> bool:
         """Convert files to Siril sequence."""
-        cmd = f"convert {name}"
+        cmd = f"convert {quote_siril_arg(name)}"
         if out:
             out = out.replace("\\", "/")
-            cmd += f" -out={out}"
+            cmd += f" {quote_siril_arg('-out=' + out)}"
         return self.execute(cmd)
 
     def split(self, r_file: str, g_file: str, b_file: str) -> bool:
@@ -89,4 +98,6 @@ class SirilFileOpsMixin:
         r_file = r_file.replace("\\", "/")
         g_file = g_file.replace("\\", "/")
         b_file = b_file.replace("\\", "/")
-        return self.execute(f"split {r_file} {g_file} {b_file}")
+        return self.execute(
+            f"split {quote_siril_arg(r_file)} {quote_siril_arg(g_file)} {quote_siril_arg(b_file)}"
+        )

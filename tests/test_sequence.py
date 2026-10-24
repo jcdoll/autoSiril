@@ -22,7 +22,7 @@ def _write_seq_file(path: Path, n_images: int, fwhm_values: list[float]) -> None
     with open(path, "w") as f:
         f.write("#Siril sequence file.\n")
         f.write("#S 'name' start nb_images nb_selected fixed_len ref version\n")
-        f.write(f"S 'light' 1 {n_images} {n_images} 5 1 1\n")
+        f.write(f"S 'light' 1 {n_images} {n_images} 5 0 1\n")
         f.write("L -1\n")
         for i in range(n_images):
             f.write(f"I {i + 1} 1\n")
@@ -69,7 +69,7 @@ class TestParseSequenceFile:
 
         stats = parse_sequence_file(path)
         assert stats is not None
-        assert stats.reference_index == 1  # From S line
+        assert stats.reference_index == 1  # Stored zero selects the first image
 
     def test_parse_histogram(self, temp_dir):
         """Should compute histogram bins."""
@@ -372,3 +372,26 @@ class TestFormatStatsLog:
         assert len(lines) > 5
         assert any("Registration stats summary" in line for line in lines)
         assert any("Decision" in line for line in lines)
+
+
+def test_rejected_second_reference_is_replaced(tmp_path: Path) -> None:
+    """A zero-based stored index must select the actual bad reference's metrics."""
+    from unittest.mock import MagicMock
+
+    from siril_job_runner.config import Config
+    from siril_job_runner.preprocessing_pipeline import compute_fwhm_threshold
+
+    values = [3.0, 10.0, *np.linspace(2.8, 3.3, 18)]
+    sequence = tmp_path / "light.seq"
+    sequence.write_text(
+        "S 'light' 1 20 20 5 1 6 0 0 0\nL 1\n"
+        + "".join(f"I {i} 1\n" for i in range(1, 21))
+        + "".join(f"R0 {v} {v} 0.9 1 100 200 H 1 0 0 0 1 0 0 0 1\n" for v in values)
+    )
+    stats = parse_sequence_file(sequence)
+    assert stats is not None and stats.reference_wfwhm == 10
+    siril = MagicMock()
+    threshold = compute_fwhm_threshold(siril, tmp_path, "light", Config())
+    assert threshold is not None
+    replacement = siril.setref.call_args.args[1]
+    assert values[replacement - 1] < threshold

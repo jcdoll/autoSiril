@@ -65,8 +65,10 @@ def compute_fwhm_threshold(
                     f"Reference image (wFWHM={stats.reference_wfwhm:.2f}px) "
                     f"exceeds threshold, switching to image {new_ref}"
                 )
-            if not siril.setref(seq_name, new_ref) and log_fn:
-                log_fn("Warning: Failed to set new reference image")
+            if not siril.setref(seq_name, new_ref):
+                raise RuntimeError(
+                    "Siril setref failed while replacing a rejected reference"
+                )
 
     return stats.threshold
 

@@ -5,12 +5,15 @@ Parses stacked image filenames to extract filter and exposure information.
 """
 
 import re
+from collections.abc import Collection
 from pathlib import Path
 
 from .models import StackInfo
 
 
-def discover_stacks(stacks_dir: Path) -> dict[str, list[StackInfo]]:
+def discover_stacks(
+    stacks_dir: Path, *, selected: Collection[Path] | None = None
+) -> dict[str, list[StackInfo]]:
     """
     Discover stacks in the stacks directory.
 
@@ -22,7 +25,10 @@ def discover_stacks(stacks_dir: Path) -> dict[str, list[StackInfo]]:
     pattern = re.compile(r"^stack_([A-Z]+)_(\d+)s\.fit$")
     result: dict[str, list[StackInfo]] = {}
 
-    for path in stacks_dir.glob("stack_*_*s.fit"):
+    paths = stacks_dir.glob("stack_*_*s.fit") if selected is None else selected
+    for path in paths:
+        if not path.is_file():
+            raise FileNotFoundError(f"Missing stack: {path}")
         match = pattern.match(path.name)
         if match:
             filter_name = match.group(1)

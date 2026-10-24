@@ -6,6 +6,8 @@ Provides mixin class for calibration, registration, and stacking operations.
 
 from typing import Optional
 
+from .siril_file_ops import quote_siril_arg
+
 
 class SirilRegistrationMixin:
     """Mixin for Siril calibration, registration, and stacking operations."""
@@ -24,13 +26,13 @@ class SirilRegistrationMixin:
         flat: Optional[str] = None,
     ) -> bool:
         """Calibrate a sequence."""
-        cmd = f"calibrate {name}"
+        cmd = f"calibrate {quote_siril_arg(name)}"
         if bias:
-            cmd += f" -bias={bias.replace(chr(92), '/')}"
+            cmd += f" {quote_siril_arg('-bias=' + bias)}"
         if dark:
-            cmd += f" -dark={dark.replace(chr(92), '/')}"
+            cmd += f" {quote_siril_arg('-dark=' + dark)}"
         if flat:
-            cmd += f" -flat={flat.replace(chr(92), '/')}"
+            cmd += f" {quote_siril_arg('-flat=' + flat)}"
         return self.execute(cmd)
 
     # Background extraction
@@ -74,14 +76,14 @@ class SirilRegistrationMixin:
             prefix: Output sequence prefix (default: "bkg_")
         """
         if method == "rbf":
-            cmd = f"seqsubsky {name} -rbf"
+            cmd = f"seqsubsky {quote_siril_arg(name)} -rbf"
         else:
-            cmd = f"seqsubsky {name} {degree}"
+            cmd = f"seqsubsky {quote_siril_arg(name)} {degree}"
         cmd += f" -samples={samples} -tolerance={tolerance} -smooth={smooth}"
         if not dither:
             cmd += " -nodither"
         if prefix:
-            cmd += f" -prefix={prefix}"
+            cmd += f" {quote_siril_arg('-prefix=' + prefix)}"
         return self.execute(cmd)
 
     # Registration
@@ -101,7 +103,7 @@ class SirilRegistrationMixin:
             transf: Transformation type (shift, similarity, affine, homography)
                     Default is homography which handles rotation and scaling.
         """
-        cmd = f"register {name}"
+        cmd = f"register {quote_siril_arg(name)}"
         if twopass:
             cmd += " -2pass"
         if transf:
@@ -110,7 +112,7 @@ class SirilRegistrationMixin:
 
     def setref(self, name: str, index: int) -> bool:
         """Set reference image for a sequence (1-based index)."""
-        return self.execute(f"setref {name} {index}")
+        return self.execute(f"setref {quote_siril_arg(name)} {index}")
 
     def rotate(
         self,
@@ -150,7 +152,7 @@ class SirilRegistrationMixin:
             framing: Framing mode (e.g., "min", "max", "current")
             filter_fwhm: Absolute FWHM threshold in pixels (filters wFWHM)
         """
-        cmd = f"seqapplyreg {name}"
+        cmd = f"seqapplyreg {quote_siril_arg(name)}"
         if framing:
             cmd += f" -framing={framing}"
         if filter_fwhm is not None:
@@ -171,21 +173,21 @@ class SirilRegistrationMixin:
         out: Optional[str] = None,
     ) -> bool:
         """Stack a sequence."""
-        cmd = f"stack {name} {rejection} {weight} {sigma_low} {sigma_high}"
+        cmd = f"stack {quote_siril_arg(name)} {rejection} {weight} {sigma_low} {sigma_high}"
         if norm:
             cmd += f" -norm={norm}"
         if fastnorm:
             cmd += " -fastnorm"
         if out:
             out = out.replace("\\", "/")
-            cmd += f" -out={out}"
+            cmd += f" {quote_siril_arg('-out=' + out)}"
         return self.execute(cmd)
 
     # Linear matching
 
     def linear_match(self, ref: str, low: float = 0, high: float = 0.92) -> bool:
         """Linear match current image to reference."""
-        return self.execute(f"linear_match {ref} {low} {high}")
+        return self.execute(f"linear_match {quote_siril_arg(ref)} {low} {high}")
 
     # Composition
 
@@ -206,13 +208,13 @@ class SirilRegistrationMixin:
         """
         if lum and rgb:
             # Adding luminance to RGB
-            cmd = f"rgbcomp -lum={lum} {rgb}"
+            cmd = f"rgbcomp {quote_siril_arg('-lum=' + lum)} {quote_siril_arg(rgb)}"
         elif r and g and b:
             # Creating RGB from channels
-            cmd = f"rgbcomp {r} {g} {b}"
+            cmd = f"rgbcomp {quote_siril_arg(r)} {quote_siril_arg(g)} {quote_siril_arg(b)}"
         else:
             raise ValueError("Either provide r,g,b or lum+rgb")
 
         if out:
-            cmd += f" -out={out}"
+            cmd += f" {quote_siril_arg('-out=' + out)}"
         return self.execute(cmd)

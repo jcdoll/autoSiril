@@ -8,10 +8,44 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 from .config import ColorRemovalMode, Config
+from .preprocessing_utils import create_sequence_file
 from .psf_analysis import analyze_psf, format_psf_stats
+from .siril_file_ops import link_or_copy
 
 if TYPE_CHECKING:
     from .protocols import SirilInterface
+
+
+def register_composition_stacks(
+    siril: "SirilInterface",
+    sources: list[Path],
+    work_dir: Path,
+    reference: int,
+    twopass: bool,
+) -> list[Path]:
+    """Register exactly these stacks, rejecting missing or failed outputs."""
+    registered_dir = work_dir / "registered"
+    registered_dir.mkdir(parents=True, exist_ok=True)
+    outputs = []
+    for index, source in enumerate(sources, 1):
+        link_or_copy(source, registered_dir / f"stack_{index:05d}.fit")
+        output = registered_dir / f"r_stack_{index:05d}.fit"
+        # These are generated registration copies, never source stacks.
+        output.unlink(missing_ok=True)
+        outputs.append(output)
+    create_sequence_file(registered_dir / "stack_.seq", len(sources), "stack_")
+    if not siril.cd(str(registered_dir)):
+        raise RuntimeError(f"Failed to enter registration directory: {registered_dir}")
+    if not twopass and not siril.setref("stack_", reference):
+        raise RuntimeError("Siril setref failed during composition")
+    if not siril.register("stack_", twopass=twopass):
+        raise RuntimeError("Siril register failed during composition")
+    if not siril.seqapplyreg("stack_", framing="min"):
+        raise RuntimeError("Siril seqapplyreg failed during composition")
+    for output in outputs:
+        if not output.is_file():
+            raise FileNotFoundError(f"Missing registered stack: {output}")
+    return outputs
 
 
 def save_diagnostic_preview(
@@ -21,13 +55,17 @@ def save_diagnostic_preview(
     log_fn: Callable[[str], None],
 ) -> None:
     """Save a diagnostic preview JPG of the currently loaded image."""
-    siril.load(name)
-    siril.autostretch()
+    if not siril.load(name):
+        raise RuntimeError("Siril load failed during composition")
+    if not siril.autostretch():
+        raise RuntimeError("Siril autostretch failed during composition")
     output_path = output_dir / f"diag_{name}.jpg"
-    siril.savejpg(str(output_path.with_suffix("")), 90)
+    if not siril.savejpg(str(output_path.with_suffix("")), 90):
+        raise RuntimeError("Siril savejpg failed during composition")
     log_fn(f"Diagnostic preview: {output_path.name}")
     # Reload original unstretched data so subsequent operations work on linear data
-    siril.load(name)
+    if not siril.load(name):
+        raise RuntimeError("Siril load failed during composition")
 
 
 def apply_color_removal(
@@ -92,7 +130,8 @@ def apply_spcc_step(
                 obsheight=config.spcc_obsheight,
             ):
                 linear_pcc_path = output_dir / f"{type_name}_linear_spcc.fit"
-                siril.save(str(linear_pcc_path))
+                if not siril.save(str(linear_pcc_path)):
+                    raise RuntimeError("Siril save failed during composition")
                 stretch_source = str(linear_pcc_path)
                 log_fn(f"Saved color-calibrated: {linear_pcc_path.name}")
             else:
@@ -139,7 +178,8 @@ def neutralize_rgb_background(
     log_fn("Neutralizing RGB background color...")
 
     # Step 1: Split into R, G, B channels
-    siril.load(image_name)
+    if not siril.load(image_name):
+        raise RuntimeError("Siril load failed during composition")
     if not siril.split("_nb_r", "_nb_g", "_nb_b"):
         log_fn("  split failed, skipping neutralization")
         return False
@@ -153,17 +193,21 @@ def neutralize_rgb_background(
         high = config.narrowband_balance_high
     log_fn(f"  linear matching G, B to R (bounds: {low:.2f}-{high:.2f})")
 
-    siril.load("_nb_g")
+    if not siril.load("_nb_g"):
+        raise RuntimeError("Siril load failed during composition")
     if not siril.linear_match(ref="_nb_r", low=low, high=high):
         log_fn("  linear_match G failed")
         return False
-    siril.save("_nb_g")
+    if not siril.save("_nb_g"):
+        raise RuntimeError("Siril save failed during composition")
 
-    siril.load("_nb_b")
+    if not siril.load("_nb_b"):
+        raise RuntimeError("Siril load failed during composition")
     if not siril.linear_match(ref="_nb_r", low=low, high=high):
         log_fn("  linear_match B failed")
         return False
-    siril.save("_nb_b")
+    if not siril.save("_nb_b"):
+        raise RuntimeError("Siril save failed during composition")
 
     # Step 4: Recombine channels
     if not siril.rgbcomp(r="_nb_r", g="_nb_g", b="_nb_b", out=image_name):
@@ -198,7 +242,8 @@ def apply_deconvolution(
     Returns:
         Name of result image (output_name if successful, source_name if failed)
     """
-    siril.load(source_name)
+    if not siril.load(source_name):
+        raise RuntimeError("Siril load failed during composition")
 
     psf_path = (
         str(output_dir / f"psf_{psf_suffix}.fit") if config.deconv_save_psf else None
@@ -221,7 +266,8 @@ def apply_deconvolution(
             regularization=config.deconv_regularization,
             alpha=config.deconv_alpha,
         ):
-            siril.save(output_name)
+            if not siril.save(output_name):
+                raise RuntimeError("Siril save failed during composition")
             return output_name
 
         log_fn("Deconvolution failed, using original")

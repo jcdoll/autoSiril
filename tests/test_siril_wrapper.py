@@ -54,3 +54,54 @@ def test_starnet_success() -> None:
     connection = MagicMock()
     connection.Execute.return_value = True
     SirilWrapper(connection).starnet()
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "cd",
+        "load",
+        "save",
+        "savetif",
+        "savejpg",
+        "convert",
+        "calibrate",
+        "stack",
+        "rgbcomp",
+        "makepsf",
+    ],
+)
+def test_paths_with_spaces_reach_siril_as_single_arguments(operation: str) -> None:
+    """Preserve paths and complete option values at the external parser boundary."""
+    import shlex
+
+    location = "C:/Astro Data/M42 frame"
+    connection = MagicMock()
+    parsed: list[str] = []
+
+    def execute(command: str) -> bool:
+        """Apply the documented whitespace/quote parsing contract."""
+        parsed.extend(shlex.split(command))
+        return True
+
+    connection.Execute.side_effect = execute
+    wrapper = SirilWrapper(connection)
+    if operation == "calibrate":
+        wrapper.calibrate("light", dark=location, flat=location)
+        assert "-dark=" + location in parsed and "-flat=" + location in parsed
+    elif operation == "rgbcomp":
+        wrapper.rgbcomp(lum=location, rgb=location, out=location)
+        assert (
+            location in parsed
+            and "-lum=" + location in parsed
+            and "-out=" + location in parsed
+        )
+    elif operation == "makepsf":
+        wrapper.makepsf(save_psf=location)
+        assert "-savepsf=" + location in parsed
+    elif operation in ("convert", "stack"):
+        getattr(wrapper, operation)("light", out=location)
+        assert "-out=" + location in parsed
+    else:
+        getattr(wrapper, operation)(location.replace("/", "\\"))
+        assert location in parsed

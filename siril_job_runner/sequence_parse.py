@@ -49,8 +49,11 @@ def parse_sequence_file(seq_path: Path) -> Optional[RegistrationStats]:
                 parts = line.split()
                 if len(parts) >= 7:
                     with contextlib.suppress(ValueError, IndexError):
-                        # reference_image is 1-based, -1 means auto
-                        reference_index = int(parts[6])
+                        # Siril stores a zero-based index; our image indices start at one.
+                        stored_reference = int(parts[6])
+                        reference_index = (
+                            stored_reference + 1 if stored_reference >= 0 else -1
+                        )
 
             # Parse R0 lines for registration data
             # Format: R0 FWHM wFWHM roundness quality background n_stars H ...
