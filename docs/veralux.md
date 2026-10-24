@@ -27,6 +27,33 @@ Do not extract or share algorithmic code across VeraLux modules. If two modules 
 
 The shared utility modules (`veralux_core.py`, `veralux_colorspace.py`, `veralux_wavelet.py`) provide general mathematical primitives (color space conversions, wavelet transforms, MAD statistics) that are not part of any single script's algorithm. These are fine to import from any VeraLux module.
 
+## Linear star masks and FITS units
+
+StarComposer uses the bounded rational curve from upstream StarComposer 2.1.1.
+Its input is a linear star mask, so no gamma conversion or fixed faint-star
+cutoff is applied. Both broadband and narrowband composition use this path;
+a mono narrowband mask produces white stars. The existing intensity control
+now uses the upstream 1-21 range, with a pipeline default of 5 and neutral
+hardness 50. M42 uses intensity 11 because its RGB star mask is much fainter
+than the mono narrowband masks; the side-by-side comparison retains a visible
+star field without overwhelming the nebula. Old intensity overrides used a different curve and must be retuned.
+The GUI and optional upstream healing/reduction features are not ported.
+
+Shared FITS I/O converts integer samples using their dtype's full scale and
+keeps floating-point samples in their existing units. Pixels outside [0, 1]
+are clipped at the processing boundary, never used to infer image units.
+This prevents a few StarNet outliers from darkening an entire image. Original
+star-mask checkpoints are kept unchanged for diagnosis.
+
+The seven supplied narrowband jobs disable whole-channel background matching.
+Their October comparisons showed that fitting green and blue to red suppressed
+nebula structure. This is a job setting, not a new palette or a global saturation
+change. Compare the final images before adjusting color further.
+
+Narrowband saves its already-stretched checkpoint as `*_palette_<method>.fit`; it does not report it as an unstretched RGB image.
+Use the retained filter stacks for manual linear narrowband processing.
+LRGB reports the existing `rgb_linear.fit` as its linear RGB product.
+
 ## License
 
 The original VeraLux code is licensed under GPL-3.0-or-later.

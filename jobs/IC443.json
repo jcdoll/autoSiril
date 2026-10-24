@@ -21,6 +21,7 @@
   },
   "options": {
     "flip_calibration_vertical": true,
+    "narrowband_neutralization": false,
     "palette": "SHO",
     "dark_temp_override": -10,
     "pre_stack_subsky_method": "none",

@@ -30,6 +30,8 @@ from siril_job_runner.veralux_colorspace import (
 )
 from siril_job_runner.veralux_wavelet import atrous_decomposition
 
+from .veralux_core import normalized_image
+
 # Hue centers in radians for the 6 color vectors
 # Order: Red, Yellow, Green, Cyan, Blue, Magenta
 HUE_CENTERS_RAD = np.array(
@@ -352,11 +354,8 @@ def apply_vectra(
     )
 
     with fits.open(image_path) as hdul:
-        data = hdul[0].data.astype(np.float64)
+        data = normalized_image(hdul[0].data)
         header = hdul[0].header.copy()
-
-    if data.max() > 1.5:
-        data = data / 65535.0
 
     if data.ndim != 3 or data.shape[0] != 3:
         log("Vectra: Image must be RGB (3, H, W)")
