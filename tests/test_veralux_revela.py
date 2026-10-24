@@ -10,6 +10,27 @@ from siril_job_runner.veralux_revela import (
 from siril_job_runner.veralux_wavelet import atrous_decomposition
 
 
+def test_structure_protection_suppresses_star_brightening_more_than_texture() -> None:
+    """The stronger structure mask must reduce its share of star-core brightening."""
+    y, x = np.mgrid[-64:65, -64:65]
+    star = 0.12 + 0.4 * np.exp(-(x * x + y * y) / 18)
+    data = np.broadcast_to(star, (3, 129, 129)).copy()
+    baseline, _ = enhance_details(data, texture=0, structure=0)
+    fractions = []
+    for texture, structure in [(100, 0), (0, 100)]:
+        protected, _ = enhance_details(
+            data, texture=texture, structure=structure, protect_stars=True
+        )
+        unprotected, _ = enhance_details(
+            data, texture=texture, structure=structure, protect_stars=False
+        )
+        full_boost = unprotected[0, 64, 64] - baseline[0, 64, 64]
+        assert full_boost > 0.1
+        fractions.append((protected[0, 64, 64] - baseline[0, 64, 64]) / full_boost)
+    texture_fraction, structure_fraction = fractions
+    assert 0 < structure_fraction < texture_fraction / 2 < 0.5
+
+
 class TestSignalMask:
     """Tests for signal mask computation."""
 

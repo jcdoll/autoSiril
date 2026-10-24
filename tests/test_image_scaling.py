@@ -38,3 +38,59 @@ def test_enhancement_preserves_background_scale(
         result = hdus[0].data / 65535.0
     assert np.isfinite(result).all()
     assert 0.06 < np.median(result[:, 32:96, 32:96]) < 0.10
+
+
+def test_stretch_does_not_rescale_other_pixels_at_float_threshold(
+    tmp_path: Path,
+) -> None:
+    """Crossing the old float maximum threshold cannot change image-wide units."""
+    from siril_job_runner.veralux_stretch import apply_stretch
+
+    y, x = np.mgrid[-1:1:128j, -1:1:128j]
+    signal = 0.02 + 0.1 * np.exp(-(x * x + y * y) / 0.1)
+    original = np.stack([signal * 1.2, signal, signal * 0.8]).astype(np.float32)
+    outputs = []
+    for index, peak in enumerate([1.0999, 1.1001]):
+        pixels = original.copy()
+        pixels[:, 0, 0] = peak
+        path = tmp_path / f"input{index}.fit"
+        fits.writeto(path, pixels)
+        success, _ = apply_stretch(MagicMock(), path, Config())
+        assert success
+        outputs.append(
+            fits.getdata(path.with_stem(f"input{index}_stretched"), memmap=False)
+        )
+    np.testing.assert_array_equal(outputs[0], outputs[1])
+
+
+@pytest.mark.parametrize("storage", ["uint16", "float32"])
+def test_image_statistics_preserve_units(tmp_path: Path, storage: str) -> None:
+    """Integer full scale and float outliers cannot misidentify the weakest channel."""
+    from siril_job_runner.siril_wrapper import SirilWrapper
+
+    pixels = np.full((16, 16), 0.2, dtype=np.float32)
+    pixels[0, 0] = 1.6 if storage == "float32" else 1.0
+    if storage == "uint16":
+        pixels = (pixels * 65535).astype(np.uint16)
+    path = tmp_path / "stats.fit"
+    fits.writeto(path, pixels)
+    stats = SirilWrapper(MagicMock()).get_image_stats(path)
+    assert stats["median"] == pytest.approx(0.2, abs=1 / 65535)
+    assert stats["max"] == 1.0
+
+
+@pytest.mark.parametrize("operation", ["stretch", "statistics"])
+def test_nonfinite_pixels_fail_before_stretch_or_statistics(
+    tmp_path: Path, operation: str
+) -> None:
+    """Invalid values must not be converted into plausible finite image results."""
+    from siril_job_runner.siril_wrapper import SirilWrapper
+    from siril_job_runner.veralux_stretch import apply_stretch
+
+    path = tmp_path / "bad.fit"
+    fits.writeto(path, np.full((3, 8, 8), np.nan, dtype=np.float32))
+    with pytest.raises(ValueError, match="non-finite"):
+        if operation == "stretch":
+            apply_stretch(MagicMock(), path, Config())
+        else:
+            SirilWrapper(MagicMock()).get_image_stats(path)

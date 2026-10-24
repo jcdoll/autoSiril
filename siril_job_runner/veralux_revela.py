@@ -109,8 +109,7 @@ def _compute_star_mask_energy(
     star_protection_tex = 1.0 - (star_map * strength)
 
     # Tighter protection for structure (squared mask)
-    star_map_structure = np.clip(star_map**2, 0, 1)
-    star_protection_str = 1.0 - (star_map_structure * strength)
+    star_protection_str = star_protection_tex**2
 
     return star_protection_tex.astype(np.float64), star_protection_str.astype(
         np.float64

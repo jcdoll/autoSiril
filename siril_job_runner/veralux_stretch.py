@@ -4,7 +4,8 @@ VeraLux HyperMetric Stretch implementation.
 Based on VeraLux by Riccardo Paterniti.
 https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_HyperMetric_Stretch.py
 
-This module implements the core stretch algorithm matching the reference exactly.
+This port keeps a luminance-linked final MTF to preserve color ratios; upstream
+HyperMetric 1.5.2 applies that MTF separately to each channel.
 
 Ported from standalone VeraLux reference script. Algorithmic functions are
 intentionally self-contained to allow independent validation against the
@@ -18,6 +19,8 @@ from typing import Callable
 
 from siril_job_runner.config import Config
 from siril_job_runner.protocols import SirilInterface
+
+from .veralux_core import normalized_image
 
 # Reference defaults from VeraLux
 DEFAULT_CONVERGENCE_POWER = 3.5
@@ -205,39 +208,6 @@ def build_pixelmath_formula(D: float, b: float) -> str:
     norm = math.asinh(D + b) - math.asinh(b)
     asinh_b = math.asinh(b)
     return f"(asinh({D}*$T+{b})-{asinh_b})/{norm}"
-
-
-def _normalize_input(data):
-    """
-    Normalize input to 0-1 range based on dtype.
-
-    Reference implementation: detects dtype and divides by max representable value.
-    """
-    import numpy as np
-
-    data = np.nan_to_num(data, nan=0.0, posinf=None, neginf=0.0)
-    input_dtype = data.dtype
-    img_float = data.astype(np.float64)
-
-    if np.issubdtype(input_dtype, np.integer):
-        if input_dtype == np.uint8:
-            return img_float / 255.0
-        elif input_dtype == np.uint16:
-            return img_float / 65535.0
-        elif input_dtype == np.int16:
-            return img_float / 32767.0
-        else:
-            return img_float / 4294967295.0
-
-    elif np.issubdtype(input_dtype, np.floating):
-        current_max = float(np.max(data))
-        if current_max <= 1.1:
-            return img_float
-        if current_max < 100000.0:
-            return img_float / 65535.0
-        return img_float / 4294967295.0
-
-    return img_float
 
 
 def _calculate_anchor_percentile(
@@ -539,7 +509,8 @@ def _adaptive_output_scaling(
         )
         if is_rgb:
             # Linked MTF: apply to luminance, scale channels proportionally
-            # This preserves color ratios (matches reference documentation "Linked MTF")
+            # This intentionally preserves ratios instead of upstream
+            # HyperMetric 1.5.2's per-channel MTF.
             L_before = (
                 r_weight * result[0] + g_weight * result[1] + b_weight * result[2]
             )
@@ -560,7 +531,7 @@ def apply_stretch(
     log_fn: Callable[[str], None] | None = None,
 ) -> tuple[bool, float]:
     """
-    Apply VeraLux HyperMetric stretch matching reference implementation.
+    Apply the VeraLux-derived stretch with luminance-linked output scaling.
 
     For RGB images:
     1. Normalize input based on dtype
@@ -585,12 +556,12 @@ def apply_stretch(
             log_fn(msg)
 
     # Load image with astropy
-    with fits.open(image_path) as hdul:
+    with fits.open(image_path, memmap=False) as hdul:
         raw_data = hdul[0].data
         header = hdul[0].header.copy()
 
-    # Normalize to 0-1 based on dtype (reference implementation)
-    data = _normalize_input(raw_data)
+    # Normalize by storage type; bright float outliers do not change image units.
+    data = normalized_image(raw_data)
 
     # Check if RGB (3, H, W) or mono (H, W)
     is_rgb = data.ndim == 3 and data.shape[0] == 3

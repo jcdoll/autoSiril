@@ -57,3 +57,20 @@ LRGB reports the existing `rgb_linear.fit` as its linear RGB product.
 ## License
 
 The original VeraLux code is licensed under GPL-3.0-or-later.
+
+## Differences from upstream
+
+The HyperMetric port retains a luminance-linked final midtone adjustment. Upstream
+[HyperMetric 1.5.2](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_HyperMetric_Stretch.py)
+applies that adjustment separately to each color channel. These produce different
+colors; the local implementation is not an exact reference match.
+
+Image loading uses the storage type to determine units. Integer images are divided
+by their type's maximum; floating-point pixels retain their units. Out-of-range
+pixels are clipped on the processing copy, and non-finite inputs are rejected.
+This deliberately avoids the upstream maximum-based scale guess.
+
+Revela squares the protection mask for stronger protection during structure
+enhancement, following the upstream formula. Its existing protection strength
+remains 0.8; upstream Revela 1.0.2 uses 1.0. Changing that strength is a separate
+appearance decision.
