@@ -135,15 +135,10 @@ class JobRunner:
         bias = self._bias_master
 
         # Find dark with matching exposure (use override temp if set)
-        dark_temp = self._get_dark_temp(temp)
-        dark = None
-        for (cached_exp, cached_temp), path in self._dark_masters.items():
-            if (
-                cached_exp == exposure
-                and abs(cached_temp - dark_temp) <= self.config.config.temp_tolerance
-            ):
-                dark = path
-                break
+        # Use the same rounded requirement key as validation/calibration building.
+        # Temperature tolerance was already applied when selecting this master.
+        dark_temp = self._get_dark_temp(round(temp))
+        dark = self._dark_masters.get((exposure, dark_temp))
 
         # Get flat for filter
         flat = self._flat_masters.get(filter_name)

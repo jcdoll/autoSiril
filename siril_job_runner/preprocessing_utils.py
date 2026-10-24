@@ -7,7 +7,7 @@ Provides frame grouping and sequence file creation for preprocessing.
 from collections import defaultdict
 from pathlib import Path
 
-from .models import FrameInfo, StackGroup
+from .models import FrameInfo, StackGroup, exposure_seconds
 
 
 def create_sequence_file(seq_path: Path, num_images: int, seq_name: str) -> None:
@@ -46,6 +46,7 @@ def group_frames_by_filter_exposure(frames: list[FrameInfo]) -> list[StackGroup]
     groups: dict[tuple[str, float], list[FrameInfo]] = defaultdict(list)
 
     for frame in frames:
+        exposure_seconds(frame.exposure)
         key = (frame.filter_name, frame.exposure)
         groups[key].append(frame)
 
