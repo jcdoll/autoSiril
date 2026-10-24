@@ -25,6 +25,8 @@ from siril_job_runner.protocols import SirilInterface
 from siril_job_runner.veralux_colorspace import lab_to_rgb, rgb_to_lab
 from siril_job_runner.veralux_wavelet import atrous_decomposition, atrous_reconstruction
 
+from .veralux_core import normalized_image
+
 
 def _compute_signal_mask(L: np.ndarray, shadow_auth: float) -> np.ndarray:
     """
@@ -232,11 +234,8 @@ def apply_revela(
     )
 
     with fits.open(image_path) as hdul:
-        data = hdul[0].data.astype(np.float64)
+        data = normalized_image(hdul[0].data)
         header = hdul[0].header.copy()
-
-    if data.max() > 1.5:
-        data = data / 65535.0
 
     if data.ndim != 3 or data.shape[0] != 3:
         log("Revela: Image must be RGB (3, H, W)")

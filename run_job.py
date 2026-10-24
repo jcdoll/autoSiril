@@ -114,7 +114,8 @@ def print_outputs(result: CompositionResult) -> None:
     """Print final output paths for a completed composition."""
     print()
     print("Outputs:")
-    print(f"  Linear: {result.linear_path}")
+    if result.linear_path is not None:
+        print(f"  Linear RGB: {result.linear_path}")
     if result.linear_pcc_path:
         print(f"  Linear (PCC): {result.linear_pcc_path}")
     print(f"  Auto FIT: {result.auto_fit}")

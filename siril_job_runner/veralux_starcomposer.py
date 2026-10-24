@@ -4,7 +4,7 @@ VeraLux StarComposer implementation - Star compositing.
 Based on VeraLux by Riccardo Paterniti.
 https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_StarComposer.py
 
-Blends a starless image with a star mask using hyperbolic stretch for star
+Blends a starless image with a star mask using rational stretch for star
 intensity control, hybrid scalar/vector engine for color grip, and
 screen/linear blend modes.
 
@@ -21,28 +21,14 @@ import numpy as np
 from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 
-from siril_job_runner.config import BlendMode, Config
+from siril_job_runner.config import DEFAULTS, BlendMode, Config
 from siril_job_runner.protocols import SirilInterface
 from siril_job_runner.veralux_stretch import get_sensor_weights
 
+from .veralux_core import normalized_image
+
 # Default luminance weights (rec709)
 DEFAULT_WEIGHTS = (0.2126, 0.7152, 0.0722)
-
-
-def _apply_gamma_conditioning(data: np.ndarray, gamma: float = 2.4) -> np.ndarray:
-    """
-    Apply gamma conditioning to linearize input.
-
-    Reference: img = np.power(img, 2.4)
-
-    Args:
-        data: Input data in [0, 1]
-        gamma: Gamma exponent (default 2.4)
-
-    Returns:
-        Gamma-conditioned data
-    """
-    return np.power(np.clip(data, 0, 1), gamma)
 
 
 def _apply_micro_blur(data: np.ndarray, sigma: float = 0.5) -> np.ndarray:
@@ -101,31 +87,19 @@ def _calculate_anchor_adaptive(
     return max(0.0, anchor)
 
 
-def hyperbolic_stretch(data: np.ndarray, D: float, b: float) -> np.ndarray:
+def rational_stretch(data: np.ndarray, D: float, b: float) -> np.ndarray:
+    """Apply the bounded StarComposer 2.1.1 rational curve to linear stars.
+
+    D is 10**log_d; log_d 1 is identity at neutral hardness 50.
+    Higher intensity lifts faint stars without a second gamma conversion.
     """
-    Apply hyperbolic stretch using inverse hyperbolic sine.
-
-    Formula: (asinh(D*data + b) - asinh(b)) / (asinh(D + b) - asinh(b))
-
-    Args:
-        data: Input data in [0, 1]
-        D: Stretch intensity (10^log_d)
-        b: Profile hardness
-
-    Returns:
-        Stretched data in [0, 1]
-    """
-    D = max(D, 0.1)
-    b = max(b, 0.1)
-
-    term1 = np.arcsinh(D * data + b)
-    term2 = np.arcsinh(b)
-    norm_factor = np.arcsinh(D + b) - term2
-
-    if abs(norm_factor) < 1e-6:
-        norm_factor = 1e-6
-
-    return (term1 - term2) / norm_factor
+    x = np.clip(data, 0.0, 1.0)
+    strength = np.clip((np.log10(max(D, 0.1)) - 1.0) / 2.0, 0.0, 12.0)
+    k = 3.0**strength
+    u = np.clip((max(b, 0.1) - 50.0) / 50.0, -1.5, 1.5)
+    toe = max(1.0 + 0.60 * u**3, 1e-3)
+    shaped = x / np.maximum(x + toe * (1.0 - x), 1e-9)
+    return np.clip(k * shaped / ((k - 1.0) * shaped + 1.0), 0.0, 1.0)
 
 
 def _stretch_scalar(img_anchored: np.ndarray, D: float, b: float) -> np.ndarray:
@@ -144,7 +118,7 @@ def _stretch_scalar(img_anchored: np.ndarray, D: float, b: float) -> np.ndarray:
     """
     result = np.zeros_like(img_anchored)
     for c in range(3):
-        result[c] = hyperbolic_stretch(img_anchored[c], D, b)
+        result[c] = rational_stretch(img_anchored[c], D, b)
     return np.clip(result, 0, 1)
 
 
@@ -174,7 +148,7 @@ def _stretch_vector(
     L = r_w * img_anchored[0] + g_w * img_anchored[1] + b_w * img_anchored[2]
 
     # Stretch luminance
-    L_stretched = hyperbolic_stretch(L, D, b)
+    L_stretched = rational_stretch(L, D, b)
 
     # Compute color ratios
     epsilon = 1e-9
@@ -270,8 +244,8 @@ def blend_linear_add(base: np.ndarray, layer: np.ndarray) -> np.ndarray:
 def compose_stars(
     starless: np.ndarray,
     starmask: np.ndarray,
-    log_d: float = 1.0,
-    hardness: float = 6.0,
+    log_d: float = DEFAULTS.veralux_starcomposer_log_d,
+    hardness: float = DEFAULTS.veralux_starcomposer_hardness,
     color_grip: float = 0.5,
     shadow_conv: float = 0.0,
     blend_mode: BlendMode = BlendMode.SCREEN,
@@ -281,7 +255,7 @@ def compose_stars(
     Compose stars onto a starless image using hybrid scalar/vector engine.
 
     Pipeline:
-    1. Gamma conditioning (linearize starmask)
+    1. Bound linear input pixels to [0, 1]
     2. Micro-blur for transition smoothing
     3. Adaptive anchoring (black point)
     4. Scalar branch: stretch R,G,B independently (crisp)
@@ -292,7 +266,7 @@ def compose_stars(
     Args:
         starless: Starless image, shape (3, H, W), values in [0, 1]
         starmask: Star mask (linear), shape (3, H, W), values in [0, 1]
-        log_d: Star intensity as log10(D), range 0-2
+        log_d: Star intensity as log10(D), range 1-21
         hardness: Star profile hardness, range 1-100
         color_grip: Color vs grayscale, 0=scalar (crisp), 1=vector (color)
         shadow_conv: Shadow convergence damping, 0-3
@@ -302,11 +276,12 @@ def compose_stars(
     Returns:
         Tuple of (composed_image, stats_dict)
     """
-    # Step 1: Gamma conditioning
-    starmask_gamma = _apply_gamma_conditioning(starmask, gamma=2.4)
+    # Input is already linear; gamma conversion would suppress faint stars.
+    starmask_linear = np.clip(starmask, 0.0, 1.0)
+    starless = np.clip(starless, 0.0, 1.0)
 
     # Step 2: Micro-blur for transition smoothing
-    starmask_blur = _apply_micro_blur(starmask_gamma, sigma=0.5)
+    starmask_blur = _apply_micro_blur(starmask_linear, sigma=0.5)
 
     # Step 3: Adaptive anchoring
     anchor = _calculate_anchor_adaptive(starmask_blur, weights)
@@ -383,20 +358,18 @@ def apply_starcomposer(
     )
 
     with fits.open(starless_path) as hdul:
-        starless = hdul[0].data.astype(np.float64)
+        starless = normalized_image(hdul[0].data)
         header = hdul[0].header.copy()
 
     with fits.open(starmask_path) as hdul:
-        starmask = hdul[0].data.astype(np.float64)
-
-    if starless.max() > 1.5:
-        starless = starless / 65535.0
-    if starmask.max() > 1.5:
-        starmask = starmask / 65535.0
+        starmask = normalized_image(hdul[0].data)
 
     if starless.ndim != 3 or starless.shape[0] != 3:
         log("StarComposer: Starless image must be RGB (3, H, W)")
         return False, starless_path
+
+    if starmask.ndim == 2:
+        starmask = np.repeat(starmask[np.newaxis, ...], 3, axis=0)
 
     if starmask.ndim != 3 or starmask.shape[0] != 3:
         log("StarComposer: Star mask must be RGB (3, H, W)")

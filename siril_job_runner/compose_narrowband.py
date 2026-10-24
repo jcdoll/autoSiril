@@ -33,7 +33,6 @@ from .compose_helpers import (
 from .config import (
     ColorRemovalMode,
     Config,
-    StarColor,
     StarSource,
     StretchMethod,
     SubskyMethod,
@@ -121,47 +120,6 @@ def _apply_scale_expressions(
             siril.pm(pm_expr)
             siril.save(ch)
             log_fn(f"  {ch}: scaled with {expr}")
-
-
-def _composite_stars(
-    siril: "SirilInterface",
-    cfg: Config,
-    stars_image: str,
-    log_fn: Callable[[str], None],
-) -> None:
-    """
-    Composite stars back onto the processed narrowband image.
-
-    Stars are blended using screen blend (1 - (1-a)*(1-b)) which is the
-    mathematically correct way to add light sources without harsh clipping.
-
-    Args:
-        stars_image: Name of the stars image to composite (e.g. "stars_prepared")
-    """
-    log_fn("  Compositing stars back...")
-    siril.load("narrowband")
-    siril.save("narrowband_starless")
-
-    # Prepare stars: mono (grayscale) creates white stars
-    siril.load(stars_image)
-    if cfg.narrowband_star_color == StarColor.MONO:
-        siril.save("_stars_mono")
-        siril.rgbcomp(
-            r="_stars_mono",
-            g="_stars_mono",
-            b="_stars_mono",
-            out="_stars_rgb",
-        )
-        log_fn("    Using stars as grayscale (white)")
-    else:
-        siril.save("_stars_rgb")
-        log_fn("    Using stars with native color")
-
-    # Screen blend: 1 - (1-a)*(1-b)
-    siril.load("narrowband_starless")
-    siril.pm("1-(1-$narrowband_starless$)*(1-$_stars_rgb$)")
-    siril.save("narrowband")
-    log_fn("    Stars composited (screen blend)")
 
 
 def compose_narrowband(
@@ -439,7 +397,7 @@ def compose_narrowband(
         log_fn("Comparing stretch methods (autostretch vs veralux)...")
 
     primary_paths = None
-    linear_path = output_dir / f"{type_name}_linear.fit"
+    palette_path = output_dir / f"{type_name}_palette_{methods[0]}.fit"
 
     for method in methods:
         suffix = f"_{method}" if cfg.stretch_compare else ""
@@ -463,12 +421,12 @@ def compose_narrowband(
         # Step 3: Apply palette formulas
         apply_palette_combination()
 
-        # Save linear composite (first iteration only)
+        # Save the first stretched palette before color adjustments
         if primary_paths is None:
             siril.load("narrowband")
-            siril.save(str(linear_path))
-            log_fn(f"Saved linear: {linear_path.name}")
-            log_color_balance_fn(linear_path)
+            siril.save(str(palette_path))
+            log_fn(f"Saved stretched palette: {palette_path.name}")
+            log_color_balance_fn(palette_path)
 
         # Step 4: Color removal (SCNR)
         if cfg.color_removal_mode != ColorRemovalMode.NONE:
@@ -488,11 +446,15 @@ def compose_narrowband(
 
         # Step 7: Composite stars back (if separated)
         if cfg.starnet_enabled and star_source_ch:
-            # Prepare stars: clip background noise
-            siril.load("stars_source")
-            siril.pm("max($stars_source$ - 0.001, 0)")
-            siril.save("stars_prepared")
-            _composite_stars(siril, cfg, "stars_prepared", log_fn)
+            from .veralux_starcomposer import apply_starcomposer
+
+            starless_path = registered_dir / "narrowband.fit"
+            success, _ = apply_starcomposer(
+                siril, starless_path, registered_dir / "stars_source.fit", cfg, log_fn
+            )
+            if not success:
+                raise RuntimeError("StarComposer failed to restore narrowband stars")
+            siril.save("narrowband")
 
         # Step 8: Apply saturation
         siril.load("narrowband")
@@ -513,7 +475,7 @@ def compose_narrowband(
     if primary_paths is None:
         raise ValueError("No narrowband palette produced an image")
     return CompositionResult(
-        linear_path=linear_path,
+        linear_path=None,
         linear_pcc_path=None,  # No PCC for narrowband
         auto_fit=primary_paths["fit"],
         auto_tif=primary_paths["tif"],

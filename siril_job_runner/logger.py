@@ -144,7 +144,7 @@ class JobLogger:
 def print_completion_summary(
     job_name: str,
     job_type: str,
-    linear_path: Path,
+    linear_path: Optional[Path],
     auto_fit: Path,
     auto_tif: Path,
     auto_jpg: Path,
@@ -189,32 +189,33 @@ def print_completion_summary(
                 f"   {linear_path}",
             ]
         )
-    else:
+    elif linear_path:
         lines.extend(
             [
-                " Linear composed file (unstretched):",
+                " Linear RGB file (unstretched):",
                 f"   {linear_path}",
                 " (Color calibration was not applied)",
             ]
         )
 
-    recommended_file = linear_pcc_path.name if linear_pcc_path else linear_path.name
-    lines.extend(
-        [
-            "",
-            " Steps:",
-            "   1. Open Siril GUI",
-            f"   2. File -> Open -> {recommended_file}",
-            "   3. Scripts -> VeraLux HyperMetric Stretch",
-            "   4. Adjust parameters (or use Ready-to-Use mode)",
-            "   5. Apply stretch",
-            "   6. Image -> Saturation (adjust to taste)",
-            "   7. File -> Save As -> your_final_image.fit",
-            "",
-            " LINEAR STACKS (for advanced re-processing)",
-            " " + "-" * 42,
-        ]
-    )
+    recommended_path = linear_pcc_path or linear_path
+    if recommended_path is not None:
+        recommended_file = recommended_path.name
+        lines.extend(
+            [
+                "",
+                " Steps:",
+                "   1. Open Siril GUI",
+                f"   2. File -> Open -> {recommended_file}",
+                "   3. Scripts -> VeraLux HyperMetric Stretch",
+                "   4. Adjust parameters (or use Ready-to-Use mode)",
+                "   5. Apply stretch",
+                "   6. Image -> Saturation (adjust to taste)",
+                "   7. File -> Save As -> your_final_image.fit",
+                "",
+            ]
+        )
+    lines.extend(["", " LINEAR STACKS (for advanced re-processing)", " " + "-" * 42])
 
     for stack_file in stack_files:
         lines.append(f" {stack_file}")
