@@ -233,3 +233,34 @@ def test_full_job_uses_only_current_preprocessing_outputs(tmp_path: Path) -> Non
         assert result is not None and result.auto_fit.is_file()
     finally:
         runner.close()
+
+
+def test_retry_cannot_use_old_siril_star_detections(tmp_path: Path) -> None:
+    """Changing an ordinal's source invalidates Siril's persistent star list."""
+    write_stacks(tmp_path, "BGR")
+    cache = tmp_path / "stacks/work/registered/cache"
+    cache.mkdir(parents=True)
+    for index in range(1, 4):
+        (cache / f"stack_{index:05d}.lst").write_text("previous image coordinates")
+    unrelated = cache / "other_sequence.lst"
+    unrelated.write_text("keep other sequences")
+    siril = image_siril(tmp_path)
+    apply_current = siril.seqapplyreg.side_effect
+
+    def apply_cached_alignment(name: str, **kwargs: object) -> bool:
+        """Siril reuses cached star coordinates for ordinal filenames on retries."""
+        assert callable(apply_current)
+        apply_current(name, **kwargs)
+        for index in range(1, 4):
+            if (cache / f"{name}{index:05d}.lst").exists():
+                path = cache.parent / f"r_{name}{index:05d}.fit"
+                fits.writeto(path, np.full((8, 8), 0.9), overwrite=True)
+        return True
+
+    siril.seqapplyreg.side_effect = apply_cached_alignment
+    result = compose_and_stretch(siril, tmp_path, "RGB", config())
+    assert result.linear_path is not None
+    np.testing.assert_allclose(
+        np.median(fits.getdata(result.linear_path), axis=(1, 2)), [0.3, 0.2, 0.1]
+    )
+    assert unrelated.read_text() == "keep other sequences"

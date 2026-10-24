@@ -32,6 +32,8 @@ def register_composition_stacks(
         output = registered_dir / f"r_stack_{index:05d}.fit"
         # These are generated registration copies, never source stacks.
         output.unlink(missing_ok=True)
+        # Siril otherwise reuses coordinates from a previous image at this ordinal.
+        (registered_dir / "cache" / f"stack_{index:05d}.lst").unlink(missing_ok=True)
         outputs.append(output)
     create_sequence_file(registered_dir / "stack_.seq", len(sources), "stack_")
     if not siril.cd(str(registered_dir)):
