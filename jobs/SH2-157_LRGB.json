@@ -22,7 +22,6 @@
   },
   "options": {
     "flip_calibration_vertical": true,
-    "dark_temp_override": -10,
-    "veralux_starcomposer_log_d": 0.1
+    "dark_temp_override": -10
   }
 }

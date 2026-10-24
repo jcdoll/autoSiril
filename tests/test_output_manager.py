@@ -108,7 +108,10 @@ def test_archive_outputs_copies_and_verifies_files(tmp_path: Path) -> None:
     ) == "jpg"
 
 
-def test_archive_composition_outputs_returns_archive_paths(tmp_path: Path) -> None:
+@pytest.mark.parametrize("has_linear", [True, False])
+def test_archive_composition_outputs_returns_archive_paths(
+    tmp_path: Path, has_linear: bool
+) -> None:
     """Archived composition results point final files at outputs."""
     job_path = write_job(tmp_path)
     base_path = tmp_path / "astro"
@@ -116,7 +119,7 @@ def test_archive_composition_outputs_returns_archive_paths(tmp_path: Path) -> No
     stacks = processed / "stacks"
     stacks.mkdir(parents=True)
     for name in [
-        "lrgb_autostretch.fit",
+        "rgb_linear.fit",
         "rgb_linear_spcc.fit",
         "lrgb_veralux.fit",
         "lrgb_veralux.tif",
@@ -128,8 +131,8 @@ def test_archive_composition_outputs_returns_archive_paths(tmp_path: Path) -> No
         os.utime(processed / name, (timestamp, timestamp))
     output = resolve_job_output(job_path, base_path, settings={})
     result = CompositionResult(
-        linear_path=processed / "lrgb_autostretch.fit",
-        linear_pcc_path=processed / "rgb_linear_spcc.fit",
+        linear_path=processed / "rgb_linear.fit" if has_linear else None,
+        linear_pcc_path=processed / "rgb_linear_spcc.fit" if has_linear else None,
         auto_fit=processed / "lrgb_veralux.fit",
         auto_tif=processed / "lrgb_veralux.tif",
         auto_jpg=processed / "lrgb_veralux.jpg",
@@ -141,13 +144,17 @@ def test_archive_composition_outputs_returns_archive_paths(tmp_path: Path) -> No
     assert (
         archive_result.output.archive_dir == base_path / "outputs" / "M42_lrgb_output"
     )
-    assert (
-        archived.linear_path == output.archive_dir / "M42_20261017_lrgb_autostretch.fit"
-    )
-    assert (
-        archived.linear_pcc_path
-        == output.archive_dir / "M42_20261017_rgb_linear_spcc.fit"
-    )
+    if has_linear:
+        assert (
+            archived.linear_path == output.archive_dir / "M42_20261017_rgb_linear.fit"
+        )
+        assert (
+            archived.linear_pcc_path
+            == output.archive_dir / "M42_20261017_rgb_linear_spcc.fit"
+        )
+    else:
+        assert archived.linear_path is None
+        assert archived.linear_pcc_path is None
     assert archived.auto_fit == output.archive_dir / "M42_20261017_lrgb_veralux.fit"
     assert archived.auto_tif == output.archive_dir / "M42_20261017_lrgb_veralux.tif"
     assert archived.auto_jpg == output.archive_dir / "M42_20261017_lrgb_veralux.jpg"

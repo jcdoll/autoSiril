@@ -197,7 +197,7 @@ def map_composition_result_to_archive(
 ) -> CompositionResult:
     """Return a composition result whose final output paths point at the archive."""
     return CompositionResult(
-        linear_path=_archived_path(result.linear_path, archive_result),
+        linear_path=_archived_optional_path(result.linear_path, archive_result),
         linear_pcc_path=_archived_optional_path(result.linear_pcc_path, archive_result),
         auto_fit=_archived_path(result.auto_fit, archive_result),
         auto_tif=_archived_path(result.auto_tif, archive_result),

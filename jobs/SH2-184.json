@@ -24,7 +24,7 @@
     "flip_calibration_vertical": true,
     "dark_temp_override": -10,
     "palette": "SHO",
-    "narrowband_neutralization": true,
+    "narrowband_neutralization": false,
     "autostretch_targetbg": 0.10,
     "autostretch_mtf_low": 0.04,
     "autostretch_mtf_mid": 0.50,

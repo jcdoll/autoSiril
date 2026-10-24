@@ -5,7 +5,6 @@ import numpy as np
 from siril_job_runner.veralux_starcomposer import (
     BlendMode,
     _apply_color_grip,
-    _apply_gamma_conditioning,
     _apply_micro_blur,
     _calculate_anchor_adaptive,
     _stretch_scalar,
@@ -13,36 +12,36 @@ from siril_job_runner.veralux_starcomposer import (
     blend_linear_add,
     blend_screen,
     compose_stars,
-    hyperbolic_stretch,
+    rational_stretch,
 )
 
 
-class TestHyperbolicStretch:
-    """Tests for hyperbolic stretch function."""
+class TestRationalStretch:
+    """Tests for rational stretch function."""
 
     def test_stretch_preserves_zero(self):
         """Zero input should give zero output."""
         data = np.array([0.0])
-        result = hyperbolic_stretch(data, D=10.0, b=6.0)
+        result = rational_stretch(data, D=10.0, b=6.0)
         np.testing.assert_almost_equal(result[0], 0.0, decimal=5)
 
     def test_stretch_preserves_one(self):
         """One input should give one output (normalized)."""
         data = np.array([1.0])
-        result = hyperbolic_stretch(data, D=10.0, b=6.0)
+        result = rational_stretch(data, D=10.0, b=6.0)
         np.testing.assert_almost_equal(result[0], 1.0, decimal=5)
 
     def test_stretch_monotonic(self):
         """Stretch should be monotonically increasing."""
         data = np.linspace(0, 1, 100)
-        result = hyperbolic_stretch(data, D=10.0, b=6.0)
+        result = rational_stretch(data, D=10.0, b=6.0)
         assert np.all(np.diff(result) >= 0)
 
     def test_higher_D_brighter(self):
         """Higher D should give brighter output for mid-values."""
         data = np.array([0.5])
-        low_D = hyperbolic_stretch(data, D=5.0, b=6.0)
-        high_D = hyperbolic_stretch(data, D=50.0, b=6.0)
+        low_D = rational_stretch(data, D=5.0, b=6.0)
+        high_D = rational_stretch(data, D=50.0, b=6.0)
         assert high_D[0] > low_D[0]
 
 
@@ -80,19 +79,6 @@ class TestBlendModes:
 
 class TestPreprocessing:
     """Tests for preprocessing functions."""
-
-    def test_gamma_conditioning_darkens(self):
-        """Gamma 2.4 should darken mid-tones."""
-        data = np.array([[[0.5]]])
-        result = _apply_gamma_conditioning(data, gamma=2.4)
-        assert result[0, 0, 0] < 0.5
-
-    def test_gamma_conditioning_preserves_extremes(self):
-        """Gamma should preserve 0 and 1."""
-        data = np.array([[[0.0, 1.0]]])
-        result = _apply_gamma_conditioning(data, gamma=2.4)
-        np.testing.assert_almost_equal(result[0, 0, 0], 0.0)
-        np.testing.assert_almost_equal(result[0, 0, 1], 1.0)
 
     def test_micro_blur_smooths(self):
         """Micro-blur should reduce sharp transitions."""
@@ -264,3 +250,17 @@ class TestComposeStars:
 
         # Results should be different
         assert not np.allclose(result_no_shadow, result_with_shadow)
+
+
+def test_faint_linear_star_survives_with_bright_outliers() -> None:
+    """Faint stars are lifted without letting edge outliers darken the nebula."""
+    base = np.full((3, 64, 64), 0.08)
+    stars = np.zeros_like(base)
+    stars[:, 28:33, 28:33] = 0.0005
+    stars[:, 0, 0] = 124.0
+    stars[:, -1, -1] = -1.0
+    result, _ = compose_stars(base, stars)
+    assert result[:, 30, 30].min() > 0.084
+    np.testing.assert_allclose(result[:, 48, 48], 0.08)
+    assert result.min() >= 0.08 - 1e-12
+    assert result.max() <= 1.0

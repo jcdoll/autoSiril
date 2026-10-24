@@ -62,13 +62,7 @@ def load_fits_data(filepath: Path) -> np.ndarray:
         For RGB images, returns shape (3, H, W).
     """
     with fits.open(filepath) as hdul:
-        data = hdul[0].data.astype(np.float64)
-
-    # Normalize to [0, 1] if needed
-    if data.max() > 1.5:
-        data = data / 65535.0
-
-    return data
+        return normalized_image(hdul[0].data)
 
 
 def save_fits_data(
@@ -94,3 +88,17 @@ def save_fits_data(
     hdu = fits.PrimaryHDU(out_data, header=header)
     hdu.writeto(filepath, overwrite=True)
     return True
+
+
+def normalized_image(data: np.ndarray) -> np.ndarray:
+    """Convert full-range integer or normalized float FITS pixels to [0, 1].
+
+    Float outliers are clipped, never used to infer the entire image's scale.
+    Astropy has already applied FITS BZERO/BSCALE before this conversion.
+    """
+    pixels = data.astype(np.float64)
+    if np.issubdtype(data.dtype, np.integer):
+        pixels /= np.iinfo(data.dtype).max
+    if not np.isfinite(pixels).all():
+        raise ValueError("Image contains non-finite pixels")
+    return np.clip(pixels, 0.0, 1.0)

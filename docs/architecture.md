@@ -249,11 +249,11 @@ Key parameters:
 
 ### VeraLux StarComposer (Star Recomposition)
 
-Controlled star recomposition onto starless images. Uses hyperbolic stretch to control star intensity and profile.
+Controlled star recomposition onto starless images. Uses the StarComposer 2.1.1 rational curve on linear star masks.
 
 Key parameters:
-- `veralux_starcomposer_log_d`: Star intensity 0-2 (default: 1.0)
-- `veralux_starcomposer_hardness`: Profile hardness 1-100 (default: 6.0)
+- `veralux_starcomposer_log_d`: Star intensity 1-21 (default: 5.0)
+- `veralux_starcomposer_hardness`: Profile hardness 1-100 (default: 50.0)
 - `veralux_starcomposer_blend_mode`: "screen" or "linear_add" (default: "screen")
 
 ### Post-Stretch Pipeline
@@ -284,7 +284,6 @@ Override precedence: `DEFAULTS <- settings.json <- job.json options`
 | `stretch_compare` | true | Output both autostretch and veralux |
 | `stretch_method` | veralux | Stretch method if compare disabled |
 | `narrowband_star_source` | auto | Channel for star extraction (L or H) |
-| `narrowband_star_color` | mono | Star color mode (mono = white) |
 | `palette` | SHO | Narrowband palette selection |
 | `spcc_enabled` | true | Spectrophotometric color calibration |
 | `deconv_enabled` | true | Richardson-Lucy deconvolution |

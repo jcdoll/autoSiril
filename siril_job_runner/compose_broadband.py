@@ -136,7 +136,7 @@ def _add_stars_back(
     config: Config,
     log_fn: Callable[[str], None],
 ) -> None:
-    """Add stars back to starless image using StarComposer (screen blend fallback)."""
+    """Add stars back to starless image using StarComposer."""
     from .veralux_starcomposer import apply_starcomposer
 
     log_fn("Applying StarComposer for star recomposition...")
@@ -151,11 +151,7 @@ def _add_stars_back(
         siril, starless_path, stars_path, config, log_fn
     )
     if not success:
-        log_fn("StarComposer failed, falling back to screen blend")
-        siril.load(starless_name)
-        siril.pm(f"1 - (1 - ${starless_name}$) * (1 - ${stars_name}$)")
-        siril.save(output_name)
-        return
+        raise RuntimeError("StarComposer failed to restore stars")
 
     # Load result and save with output name
     siril.load(str(result_path))
@@ -458,12 +454,6 @@ def compose_lrgb(
         siril.save("L_starless")
         log_fn("  L starless saved")
 
-        # Prepare stars (clip background)
-        log_fn("Preparing RGB stars (clip background)...")
-        siril.load("rgb_stars")
-        siril.pm("max($rgb_stars$ - 0.001, 0)")
-        siril.save("rgb_stars_stretched")
-
         # --- AUTOSTRETCH STARLESS ---
         log_fn("Creating AUTOSTRETCH STARLESS version...")
         lrgb_auto_starless = _stretch_and_combine_lrgb(
@@ -515,7 +505,7 @@ def compose_lrgb(
         _add_stars_back(
             siril,
             lrgb_auto_starless,
-            "rgb_stars_stretched",
+            "rgb_stars",
             "lrgb_autostretch_starcomposer",
             working_dir,
             cfg,
@@ -534,7 +524,7 @@ def compose_lrgb(
         _add_stars_back(
             siril,
             lrgb_veralux_starless,
-            "rgb_stars_stretched",
+            "rgb_stars",
             "lrgb_veralux_starcomposer",
             working_dir,
             cfg,
@@ -555,7 +545,7 @@ def compose_lrgb(
     # Return result (use veralux baseline as primary)
     # =========================================================================
     return CompositionResult(
-        linear_path=output_dir / "lrgb_autostretch.fit",
+        linear_path=rgb_linear_path,
         linear_pcc_path=rgb_spcc_path,
         auto_fit=output_dir / "lrgb_veralux.fit",
         auto_tif=output_dir / "lrgb_veralux.tif",
@@ -738,11 +728,6 @@ def compose_rgb(
             siril.save("rgb_stars")
             siril.save(str(output_dir / "rgb_stars"))
 
-        # Prepare stars
-        siril.load("rgb_stars")
-        siril.pm("max($rgb_stars$ - 0.001, 0)")
-        siril.save("rgb_stars_stretched")
-
         # --- AUTOSTRETCH STARLESS ---
         log_fn("Creating AUTOSTRETCH STARLESS version...")
         siril.load("rgb_starless")
@@ -784,7 +769,7 @@ def compose_rgb(
         _add_stars_back(
             siril,
             "rgb_auto_starless",
-            "rgb_stars_stretched",
+            "rgb_stars",
             "rgb_autostretch_starcomposer",
             working_dir,
             cfg,
@@ -802,7 +787,7 @@ def compose_rgb(
         _add_stars_back(
             siril,
             "rgb_veralux_starless",
-            "rgb_stars_stretched",
+            "rgb_stars",
             "rgb_veralux_starcomposer",
             working_dir,
             cfg,

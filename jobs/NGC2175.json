@@ -33,7 +33,7 @@
     "palette": "SHO",
     "pre_stack_subsky_method": "none",
     "post_stack_subsky_method": "poly",
-    "narrowband_neutralization": true,
+    "narrowband_neutralization": false,
     "autostretch_targetbg": 0.12,
     "autostretch_mtf_low": 0.0,
     "autostretch_mtf_mid": 0.60,

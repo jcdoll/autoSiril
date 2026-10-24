@@ -29,11 +29,6 @@ class SubskyMethod(StrEnum):
     POLY = "poly"
 
 
-class StarColor(StrEnum):
-    MONO = "mono"
-    NATIVE = "native"
-
-
 class BlendMode(StrEnum):
     SCREEN = "screen"
     LINEAR_ADD = "linear_add"
@@ -159,16 +154,15 @@ class Config:
     )
 
     # VeraLux StarComposer - Star compositing (requires starnet_enabled)
-    # Recomposes stars onto starless image with hyperbolic stretch control
-    veralux_starcomposer_log_d: float = 1.0  # Star intensity 0-2
-    veralux_starcomposer_hardness: float = 6.0  # Profile hardness 1-100
+    # Recomposes stars onto starless image with rational stretch control
+    veralux_starcomposer_log_d: float = 5.0  # Rational stretch intensity 1-21
+    veralux_starcomposer_hardness: float = 50.0  # Profile hardness 1-100
     veralux_starcomposer_color_grip: float = 0.5  # Vector vs scalar 0-1
     veralux_starcomposer_shadow_conv: float = 0.0  # Shadow convergence 0-3
     veralux_starcomposer_blend_mode: BlendMode = BlendMode.SCREEN
 
     # Narrowband star options (used when starnet_enabled and narrowband job)
     narrowband_star_source: StarSource = StarSource.AUTO
-    narrowband_star_color: StarColor = StarColor.MONO
 
     # Saturation (runs after all stretch methods)
     saturation_amount: float = 0.25  # 1.0 = +100%, override in job as needed
