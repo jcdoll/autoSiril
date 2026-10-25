@@ -628,7 +628,7 @@ def apply_stretch(
     if is_rgb:
         log("RGB image detected - using vector preservation")
 
-        # Step 1: Calculate anchor (black point) using percentile method (reference default)
+        # Step 1: Use the pipeline's percentile black point (upstream GUI uses adaptive).
         anchor = _calculate_anchor(data, weights, use_morphological=False)
         log(f"Anchor (black point): {anchor:.6f}")
 

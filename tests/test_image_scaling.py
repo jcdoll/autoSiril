@@ -77,7 +77,7 @@ def test_automatic_stretch_matches_upstream_reference(
     data = np.stack([signal * 1.3, signal, signal * 0.6]) if rgb else signal
     path = tmp_path / "reference.fit"
     fits.writeto(path, data.astype(np.float32))
-    success, _ = apply_stretch(MagicMock(), path, Config())
+    success, _ = apply_stretch(MagicMock(), path, Config(veralux_target_median=0.10))
     assert success
     result = fits.getdata(path.with_stem("reference_stretched"), memmap=False) / 65535
 

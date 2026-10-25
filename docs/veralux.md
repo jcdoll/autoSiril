@@ -147,9 +147,41 @@ The following implementation differences remain:
   instead return its initial 2.0 value. Retaining the candidate respects the
   existing minimum/maximum controls rather than silently leaving their range.
 
-These comparisons use the existing pipeline settings: target background 0.10,
-IMX571 weights for the ASI2600, statistical anchor, and ready-to-use mode. These are
-explicit processing choices, not a claim to reproduce the upstream GUI defaults
-(target 0.20 and adaptive anchor enabled). GUI controls and scientific mode are
-not ported. Changes to those settings need their own appearance comparison; they
-are held fixed here so algorithm changes can be assessed independently.
+Those algorithm comparisons used target background 0.10, IMX571 weights,
+statistical anchor and ready-to-use mode. They establish agreement at those
+settings, not equivalence to the upstream GUI defaults.
+
+## Settings audit
+
+The default HyperMetric target is now 0.20, matching upstream 1.5.2. The previous
+0.10 target left IC1396's nebulosity too dim. Its full-resolution comparison shows
+more visible nebulosity at 0.20, with a brighter gray background and more visible
+grain and existing star-removal remnants. Autostretch, starless autostretch and
+stars-only JPEGs are byte-identical controls; only the two VeraLux variants
+change. This target controls the stretch, not an exposure multiplier or a
+guaranteed final RGB median. Other targets have not been rerendered at 0.20 yet.
+
+M33 still explicitly overrides the target to 0.10 and curve knee to 4. Its job
+therefore does not inherit the new target. Those older overrides have no paired
+comparison documented here and need review on M33 before changing them.
+
+The upstream scripts linked above also expose these remaining differences.
+Documenting a difference does not justify it; the unreviewed choices below need
+separate paired renders before adoption or removal.
+
+| Setting | Pipeline | Upstream GUI default | Assessment |
+|---------|----------|----------------------|------------|
+| Revela texture / structure / shadow authority | 50 / 50 / 25 | 0 / 0 / 33 | Active enhancement versus neutral upstream controls; no comparison justifies these amounts yet. |
+| HyperMetric black-point estimate | Statistical percentile | Adaptive histogram estimate | Hardcoded local choice; no appearance comparison justifies it yet. Affects mono as well as RGB. |
+| StarComposer intensity | 5 | 1 (slider zero maps to 1) | Global choice lacks a controlled comparison against 1. M42's explicit 11 override has the separate rationale above. |
+| Vectra saturation | 25 for unspecified hue vectors | 0 | Disabled globally; M31 enables it. Its nonzero amount lacks a comparison against the neutral controls. |
+| Silentium intensity / shadow smoothing | 10 / 0 | 25 / 10 | Keep the reviewed reduction in smoothing described above. |
+| Silentium star-list protection | No-list path | Star-list protection enabled | Keep the documented avoidance of implicit, potentially stale star lists. |
+| Sensor weights | IMX571 | Rec.709 | Hardware choice for the ASI2600; irrelevant to IC1396's separately stretched mono bands. |
+
+HyperMetric's ready-to-use mode, curve knee 6, convergence 3.5, color grip 1,
+shadow convergence 0 and solver bounds 0-7 match upstream. Revela star protection,
+Vectra shadow protection and hue shifts, Silentium detail protection and chroma,
+and StarComposer hardness, color grip, shadow convergence, adaptive anchor and
+screen blending also match. Scientific mode and optional GUI-only features are
+not ported; this audit does not add them.

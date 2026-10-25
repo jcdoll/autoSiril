@@ -217,7 +217,7 @@ The VeraLux system provides advanced image processing capabilities beyond Siril'
 HyperMetric stretch with target background median. Uses binary search to find optimal D parameter for the hyperbolic transfer function. Provides more control over highlight preservation than autostretch.
 
 Key parameters:
-- `veralux_target_median`: Target background brightness (default: 0.10)
+- `veralux_target_median`: Target background brightness (default: 0.20)
 - `veralux_b`: Highlight protection / curve knee (default: 6.0)
 
 ### VeraLux Silentium (Noise Suppression)
@@ -226,7 +226,7 @@ Wavelet-based noise reduction using SWT (Stationary Wavelet Transform). Runs on 
 
 Key parameters:
 - `veralux_silentium_enabled`: Enable noise suppression (default: true)
-- `veralux_silentium_intensity`: Luminance noise reduction 0-100 (default: 25.0)
+- `veralux_silentium_intensity`: Luminance noise reduction 0-100 (default: 10.0)
 - `veralux_silentium_chroma`: Chrominance noise reduction 0-100 (default: 30.0)
 
 ### VeraLux Revela (Detail Enhancement)
