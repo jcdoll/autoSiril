@@ -5,6 +5,7 @@ Handles per-channel preprocessing: convert, calibrate, subsky, register, stack.
 Supports stacking by exposure for HDR workflows.
 """
 
+import json
 import shutil
 from pathlib import Path
 from typing import Callable, Optional
@@ -79,28 +80,19 @@ class Preprocessor:
     def _is_stack_cached(
         self,
         stack_path: Path,
-        frames: list,
-        bias_master: Path,
-        dark_master: Path,
-        flat_master: Path,
+        sources: list[Path],
     ) -> bool:
-        """Check if stack exists and is newer than all sources."""
+        """Reuse a stack only for the same sources, unchanged since stacking."""
         if not stack_path.exists():
             return False
-
-        stack_mtime = stack_path.stat().st_mtime
-
-        # Check all source frames
-        for frame in frames:
-            if frame.path.stat().st_mtime > stack_mtime:
-                return False
-
-        # Check calibration masters
-        for master in [bias_master, dark_master, flat_master]:
-            if master.stat().st_mtime > stack_mtime:
-                return False
-
-        return True
+        try:
+            recorded = json.loads(stack_path.with_suffix(".inputs.json").read_text())
+        except (OSError, ValueError):
+            return False
+        if recorded != [str(path.resolve()) for path in sources]:
+            return False
+        stack_mtime = stack_path.stat().st_mtime_ns
+        return all(path.stat().st_mtime_ns <= stack_mtime for path in sources)
 
     def process_stack_group(
         self,
@@ -122,11 +114,15 @@ class Preprocessor:
         stacks_dir = output_dir / "stacks"
         stacks_dir.mkdir(parents=True, exist_ok=True)
         stack_path = stacks_dir / f"{group.stack_name}.fit"
+        sources = sorted(frame.path.resolve() for frame in group.frames) + [
+            bias_master,
+            dark_master,
+            flat_master,
+        ]
+        input_record = stack_path.with_suffix(".inputs.json")
 
         # Check cache first
-        if not force and self._is_stack_cached(
-            stack_path, group.frames, bias_master, dark_master, flat_master
-        ):
+        if not force and self._is_stack_cached(stack_path, sources):
             if self.logger:
                 self.logger.step(
                     f"Using cached {group.filter_name} @ {group.exposure_str} "
@@ -152,6 +148,8 @@ class Preprocessor:
         )
         process_dir.mkdir(parents=True, exist_ok=True)
 
+        # A failed rebuild must not leave an old stack eligible for reuse.
+        input_record.unlink(missing_ok=True)
         self._clean_process_dir(process_dir)
 
         num_frames = self._prepare_frames(group, process_dir)
@@ -170,6 +168,9 @@ class Preprocessor:
             log_detail_fn=self._log_detail,
         )
 
+        input_record.write_text(
+            json.dumps([str(path.resolve()) for path in sources], indent=2) + "\n"
+        )
         return stack_path
 
     def _prepare_frames(self, group: StackGroup, process_dir: Path) -> int:

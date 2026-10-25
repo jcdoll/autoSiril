@@ -71,6 +71,7 @@
   "options": {
     "temp_tolerance": 2,
     "flip_calibration_vertical": true,
+    "deconv_enabled": false,
     "veralux_starcomposer_log_d": 11.0,
     "dark_temp_override": -10,
     "hdr_low_threshold": 0.7,
@@ -78,7 +79,6 @@
     "autostretch_targetbg": 0.12,
     "autostretch_mtf_low": 0.0,
     "autostretch_mtf_mid": 0.55,
-    "autostretch_mtf_high": 0.95,
     "pre_stack_subsky_method": "poly",
     "pre_stack_subsky_degree": 1,
     "post_stack_subsky_method": "none"

@@ -105,7 +105,7 @@ The system expects this directory layout:
 
 Key conventions:
 - Dates use underscores: `2024_01_15`
-- Light folders: `{filter}{exposure}` (e.g., `L180`, `R60`). Light exposures must be positive whole seconds; fractional exposures are rejected before processing. Every configured directory must contain readable `.fit` light frames.
+- Light folders: `{filter}{exposure}` (e.g., `L180`, `R60`). Light exposures must be positive whole seconds; fractional exposures are rejected before processing. Each `lights` entry can be a directory of `.fit` frames or an individual FITS file. List individual files to omit contaminated exposures without moving or deleting captures. Do not list a directory and its files together: that would include those exposures twice. Every requested path must contribute readable frames.
 - Bias: No temperature (readout noise is temperature-independent)
 - Darks: `{date}_{temp}/{exposure}/` (thermal noise is temperature-dependent)
 - Masters are cached in `calibration/masters/`
@@ -187,7 +187,7 @@ Keep `outputs/` for final images and `<job output>/stacks/stack_<filter>_<exposu
 
 M42 enables `flip_calibration_vertical` because its light frames have the opposite vertical orientation to its calibration masters, as checked against detector defects. This creates flipped working calibration copies without changing the originals. Its existing -10 C dark override remains explicit: matching colder darks are unavailable, and validation warns about temperature mismatches. Groups requiring different calibration masters fail rather than silently using the first frame's selection.
 
-To retry composition from the retained stacks, use `uv run run-job jobs/M42.json --stage compose`. If inputs, calibration or preprocessing settings change, use `--force` to rebuild: stack caching only compares file modification times.
+To retry composition from the retained stacks, use `uv run run-job jobs/M42.json --stage compose`. Full runs rebuild a stack when its selected input paths or calibration master paths change, or a source is newer than the stack. A small `*.inputs.json` file beside each stack records that selection; stacks without a readable record are rebuilt once. Use `--force` after changing preprocessing settings, which are not part of this cache check. Compose-only reuses retained stacks and does not apply changed light-frame selection.
 
 List every job file with its resolved processed folder, existence status, and archive destination:
 
@@ -214,3 +214,5 @@ uv run manage-outputs clean --all
 ```
 
 See `examples/` for more job file examples.
+
+See [Image-quality corrections](../docs/image-quality.md) for the evidence behind the M42 and IC2118 job settings and SPCC checks.

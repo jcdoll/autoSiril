@@ -130,7 +130,7 @@ def test_fractional_dark_cannot_reuse_integer_master(tmp_path: Path) -> None:
         manager.check_dark(0.8, -10)
 
 
-@pytest.mark.parametrize("problem", ["missing", "empty", "fractional"])
+@pytest.mark.parametrize("problem", ["missing", "empty", "fractional", "unreadable"])
 def test_job_validation_rejects_incomplete_requested_inputs(
     tmp_path: Path, problem: str
 ) -> None:
@@ -141,6 +141,8 @@ def test_job_validation_rejects_incomplete_requested_inputs(
         (tmp_path / "bad").mkdir()
     elif problem == "fractional":
         write_light(tmp_path / "bad/light.fit", 0.8)
+    elif problem == "unreadable":
+        (tmp_path / "bad").write_text("not a FITS image")
     runner = runner_for(tmp_path, {"L": ["good", "bad"]})
     try:
         validation = runner.validate()
@@ -151,5 +153,29 @@ def test_job_validation_rejects_incomplete_requested_inputs(
         else:
             assert "No readable light frames" in validation.message
         assert good.is_file()
+    finally:
+        runner.close()
+
+
+def test_job_accepts_selected_files_alongside_whole_directories(tmp_path: Path) -> None:
+    """Selecting one exposure must not pull in its unselected siblings."""
+    paths = [
+        tmp_path / name for name in ("night1/a.fit", "night2/b.fit", "night2/c.fit")
+    ]
+    for path in paths:
+        write_light(path)
+    runner = runner_for(tmp_path, {"L": ["night1", "night2/b.fit"]})
+    manager = runner.cal_manager
+    for master in (
+        manager.get_bias_master_path(),
+        manager.get_dark_master_path(300, -10),
+        manager.get_flat_master_path("L"),
+    ):
+        write_light(master)
+    try:
+        result = runner.validate()
+        assert result.valid, result.message
+        assert {frame.path for frame in result.frames} == set(paths[:2])
+        assert all(path.is_file() for path in paths)
     finally:
         runner.close()

@@ -143,10 +143,10 @@ def test_get_filters(valid_job_dict):
     assert set(filters) == {"L", "R"}
 
 
-def test_get_light_directories(valid_job_dict):
-    """Test get_light_directories method."""
+def test_get_light_paths(valid_job_dict):
+    """Test get_light_paths method."""
     config = JobConfig.from_dict(valid_job_dict)
-    dirs = config.get_light_directories("L")
+    dirs = config.get_light_paths("L")
     assert dirs == ["M42/L"]
 
 

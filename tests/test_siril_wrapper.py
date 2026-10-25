@@ -1,11 +1,31 @@
 """Command completion when Siril joins a status onto its log message."""
 
+import shlex
 from queue import Queue
 from unittest.mock import MagicMock
 
 import pytest
 
 from siril_job_runner.siril_wrapper import SirilWrapper
+
+
+def test_spcc_background_limits_follow_siril_lower_upper_order() -> None:
+    """Preserve asymmetric background bounds at the external parser boundary."""
+    connection = MagicMock()
+    arguments: list[str] = []
+
+    def execute(command: str) -> bool:
+        """Capture arguments as Siril receives them."""
+        arguments.extend(shlex.split(command))
+        return True
+
+    connection.Execute.side_effect = execute
+    assert SirilWrapper(connection).spcc(
+        "Sensor", "Red", "Green", "Blue", bgtol_lower=3.5, bgtol_upper=1.5
+    )
+    bounds = next(arg for arg in arguments if arg.startswith("-bgtol="))
+    lower, upper = map(float, bounds.split("=")[1].split(","))
+    assert (-lower, upper) == (-3.5, 1.5)
 
 
 @pytest.mark.parametrize("status,expected", [("error", False), ("success", True)])

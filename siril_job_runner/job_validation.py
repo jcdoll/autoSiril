@@ -8,7 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from .fits_utils import check_clipping, scan_directory
+from .fits_utils import check_clipping, read_fits_header, scan_directory
 from .frame_analysis import (
     build_date_summary_table,
     build_requirements_table,
@@ -37,8 +37,8 @@ def validate_job(
 
     Args:
         job_name: Name of the job
-        lights: Dict of filter_name -> list of directories
-        base_path: Base path for resolving relative directories
+        lights: Dict of filter_name -> list of directories or individual FITS files
+        base_path: Base path for resolving relative input paths
         cal_manager: CalibrationManager instance
         config: Configuration
         logger: Logger instance
@@ -49,16 +49,20 @@ def validate_job(
     """
     logger.step(f"Validating job: {job_name}")
 
-    # Every requested directory must contribute frames before processing starts.
+    # Every requested path must contribute frames before processing starts.
     all_frames: list[FrameInfo] = []
     input_errors: list[str] = []
-    for filter_name, dirs in lights.items():
+    for filter_name, paths in lights.items():
         frames: list[FrameInfo] = []
-        if not dirs:
-            input_errors.append(f"No light directories configured for {filter_name}")
-        for directory in dirs:
-            source = base_path / directory
-            found = scan_directory(source)
+        if not paths:
+            input_errors.append(f"No light paths configured for {filter_name}")
+        for path in paths:
+            source = base_path / path
+            if source.is_file():
+                frame = read_fits_header(source)
+                found = [frame] if frame is not None else []
+            else:
+                found = scan_directory(source)
             if not found:
                 input_errors.append(
                     f"No readable light frames for {filter_name} in {source}"
@@ -70,7 +74,7 @@ def validate_job(
                     input_errors.append(f"{frame.path}: {error}")
             frames.extend(found)
         all_frames.extend(frames)
-        logger.substep(f"{filter_name}: {len(frames)} frames from {len(dirs)} dirs")
+        logger.substep(f"{filter_name}: {len(frames)} frames from {len(paths)} paths")
 
     if input_errors or not all_frames:
         return ValidationResult(

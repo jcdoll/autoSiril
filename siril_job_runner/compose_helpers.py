@@ -110,38 +110,30 @@ def apply_spcc_step(
     log_fn: Callable[[str], None],
 ) -> tuple[Optional[Path], str]:
     """Apply SPCC and return (pcc_path, stretch_source)."""
-    linear_pcc_path = None
-    stretch_source = type_name
-
-    if config.spcc_enabled:
-        log_fn("Plate solving for SPCC...")
-        if not siril.platesolve():
-            log_fn("Plate solve failed, SPCC requires solved image - skipping")
-        else:
-            log_fn("Plate solve succeeded, running SPCC...")
-            # Siril quoting rule: arguments with spaces need quotes around the
-            # entire argument including the -flag part, e.g. "-monosensor=Sony IMX571"
-            if siril.spcc(
-                sensor=config.spcc_sensor,
-                red_filter=config.spcc_red_filter,
-                green_filter=config.spcc_green_filter,
-                blue_filter=config.spcc_blue_filter,
-                whiteref=config.spcc_whiteref,
-                bgtol_upper=config.spcc_bgtol_upper,
-                bgtol_lower=config.spcc_bgtol_lower,
-                obsheight=config.spcc_obsheight,
-            ):
-                linear_pcc_path = output_dir / f"{type_name}_linear_spcc.fit"
-                if not siril.save(str(linear_pcc_path)):
-                    raise RuntimeError("Siril save failed during composition")
-                stretch_source = str(linear_pcc_path)
-                log_fn(f"Saved color-calibrated: {linear_pcc_path.name}")
-            else:
-                log_fn("SPCC failed, using uncalibrated image")
-    else:
+    if not config.spcc_enabled:
         log_fn("SPCC disabled, skipping color calibration")
+        return None, type_name
 
-    return linear_pcc_path, stretch_source
+    log_fn("Plate solving for SPCC...")
+    if not siril.platesolve():
+        raise RuntimeError("Plate solve failed; requested SPCC cannot run")
+    log_fn("Plate solve succeeded, running SPCC...")
+    if not siril.spcc(
+        sensor=config.spcc_sensor,
+        red_filter=config.spcc_red_filter,
+        green_filter=config.spcc_green_filter,
+        blue_filter=config.spcc_blue_filter,
+        whiteref=config.spcc_whiteref,
+        bgtol_upper=config.spcc_bgtol_upper,
+        bgtol_lower=config.spcc_bgtol_lower,
+        obsheight=config.spcc_obsheight,
+    ):
+        raise RuntimeError("SPCC failed; color calibration is incomplete")
+    linear_pcc_path = output_dir / f"{type_name}_linear_spcc.fit"
+    if not siril.save(str(linear_pcc_path)):
+        raise RuntimeError("Siril save failed during composition")
+    log_fn(f"Saved color-calibrated: {linear_pcc_path.name}")
+    return linear_pcc_path, str(linear_pcc_path)
 
 
 def neutralize_rgb_background(

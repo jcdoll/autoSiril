@@ -169,6 +169,32 @@ def test_missing_hdr_registration_output_never_uses_unaligned_source(
 
 
 @pytest.mark.parametrize("job_type,channels", [("RGB", "BGR"), ("LRGB", "BGLR")])
+@pytest.mark.parametrize("command", ["platesolve", "spcc"])
+def test_requested_color_calibration_failure_stops_exports(
+    tmp_path: Path, job_type: str, channels: str, command: str
+) -> None:
+    """An enabled calibration cannot silently produce uncalibrated final images."""
+    inputs = write_stacks(tmp_path, channels)
+    siril = image_siril(tmp_path)
+    getattr(siril, command).return_value = False
+    with pytest.raises(RuntimeError, match="SPCC"):
+        compose_and_stretch(siril, tmp_path, job_type, config(spcc_enabled=True))
+    assert not list(tmp_path.glob("*_autostretch*"))
+    assert all(path.exists() for path in inputs)
+
+
+def test_successful_requested_color_calibration_produces_image(tmp_path: Path) -> None:
+    """The enabled calibration path still exports a readable calibrated image."""
+    write_stacks(tmp_path, "BGLR")
+    result = compose_and_stretch(
+        image_siril(tmp_path), tmp_path, "LRGB", config(spcc_enabled=True)
+    )
+    assert result.linear_pcc_path is not None
+    assert fits.getdata(result.linear_pcc_path).shape == (3, 8, 8)
+    assert result.auto_fit.is_file()
+
+
+@pytest.mark.parametrize("job_type,channels", [("RGB", "BGR"), ("LRGB", "BGLR")])
 def test_full_job_archives_current_images_with_requested_suffix(
     tmp_path: Path,
     job_type: str,
