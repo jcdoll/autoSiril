@@ -42,6 +42,7 @@ from .models import CompositionResult, StackInfo
 from .palettes import build_effective_palette, formula_to_pixelmath, get_palette
 from .stretch_helpers import (
     apply_enhancements,
+    apply_linear_noise_reduction,
     apply_saturation,
     apply_stretch,
     save_all_formats,
@@ -386,8 +387,13 @@ def compose_narrowband(
                 log_fn(f"  {ch}: deconvolved")
 
     # ==========================================================================
-    # STAR SEPARATION (on linear data, before stretch)
+    # NOISE REDUCTION AND STAR SEPARATION (on linear data, before stretch)
     # ==========================================================================
+    for ch in all_channels:
+        apply_linear_noise_reduction(
+            siril, registered_dir / f"{ch}_linear.fit", cfg, log_fn
+        )
+
     star_source_ch = None
     if cfg.starnet_enabled:
         star_source_ch = _separate_stars_linear(
@@ -490,7 +496,7 @@ def compose_narrowband(
             raise RuntimeError("Siril load failed during composition")
         apply_saturation(siril, cfg)
 
-        # Step 9: Apply enhancements (Silentium/Revela/Vectra) if enabled
+        # Step 9: Apply enhancements (Revela/Vectra) if enabled
         base_name = f"{type_name}_auto{suffix}"
         if not siril.save(str(output_dir / base_name)):
             raise RuntimeError("Siril save failed during composition")

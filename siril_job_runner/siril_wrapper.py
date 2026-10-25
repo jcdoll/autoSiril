@@ -15,6 +15,7 @@ from .siril_color import SirilColorMixin
 from .siril_file_ops import SirilFileOpsMixin
 from .siril_registration import SirilRegistrationMixin
 from .siril_stretch import SirilStretchMixin
+from .veralux_core import normalized_image
 
 
 class SirilWrapper(
@@ -70,8 +71,8 @@ class SirilWrapper(
             Dict with median, mean, std, min, max for the image.
             For RGB images, returns stats for combined luminance.
         """
-        with fits.open(filepath) as hdul:
-            data = hdul[0].data.astype(np.float64)
+        with fits.open(filepath, memmap=False) as hdul:
+            data = normalized_image(hdul[0].data)
 
         # Handle different data layouts
         if data.ndim == 3:
@@ -83,10 +84,6 @@ class SirilWrapper(
                 # (H, W, 3) format
                 luminance = np.mean(data, axis=2)
             data = luminance
-
-        # Normalize to 0-1 if needed (16-bit data)
-        if data.max() > 1.5:
-            data = data / 65535.0
 
         return {
             "median": float(np.median(data)),

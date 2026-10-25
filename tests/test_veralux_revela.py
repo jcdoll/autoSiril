@@ -1,6 +1,7 @@
 """Tests for veralux_revela module."""
 
 import numpy as np
+import pytest
 
 from siril_job_runner.veralux_revela import (
     _compute_signal_mask,
@@ -8,6 +9,44 @@ from siril_job_runner.veralux_revela import (
     enhance_details,
 )
 from siril_job_runner.veralux_wavelet import atrous_decomposition
+
+
+@pytest.mark.parametrize("amplitude", [0.04, 0.4])
+def test_protection_suppresses_star_brightening(amplitude: float) -> None:
+    """Partly detected stars get less structure boost; full cores get no boost."""
+    y, x = np.mgrid[-64:65, -64:65]
+    noise = np.random.default_rng(21).normal(0, 0.005, x.shape)
+    star = 0.12 + noise + amplitude * np.exp(-(x * x + y * y) / 18)
+    data = np.broadcast_to(star, (3, 129, 129)).copy()
+    baseline, _ = enhance_details(data, texture=0, structure=0)
+    fractions = []
+    for texture, structure in [(100, 0), (0, 100)]:
+        protected, _ = enhance_details(
+            data, texture=texture, structure=structure, protect_stars=True
+        )
+        unprotected, _ = enhance_details(
+            data, texture=texture, structure=structure, protect_stars=False
+        )
+        full_boost = unprotected[0, 64, 64] - baseline[0, 64, 64]
+        assert full_boost > 0.01
+        fractions.append((protected[0, 64, 64] - baseline[0, 64, 64]) / full_boost)
+    if amplitude == 0.4:
+        np.testing.assert_allclose(fractions, 0, atol=1e-12)
+    else:
+        texture_fraction, structure_fraction = fractions
+        assert 0 < structure_fraction < texture_fraction / 2 < 0.5
+
+
+def test_shadow_protection_does_not_amplify_nearly_flat_background() -> None:
+    """The upstream noise floor keeps tiny fluctuations below the signal threshold."""
+    y, x = np.mgrid[-32:33, -32:33]
+    background = 0.12 + 1e-7 * np.exp(-(x * x + y * y) / 18)
+    data = np.broadcast_to(background, (3, 65, 65)).copy()
+    baseline, _ = enhance_details(data, texture=0, structure=0)
+    enhanced, _ = enhance_details(
+        data, texture=100, structure=100, shadow_auth=100, protect_stars=False
+    )
+    np.testing.assert_allclose(enhanced, baseline, atol=1e-12, rtol=0)
 
 
 class TestSignalMask:

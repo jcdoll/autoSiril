@@ -56,6 +56,7 @@ def _compute_hue_weights(H: np.ndarray) -> list[np.ndarray]:
     Returns:
         List of 6 weight arrays, one per hue vector
     """
+    H = H % (2 * np.pi)
     weights = []
     for center in HUE_CENTERS_RAD:
         diff = np.abs(H - center)
@@ -126,10 +127,8 @@ def _compute_star_mask_energy(L: np.ndarray) -> np.ndarray:
     Returns:
         Float mask in [0, 1] where 1 = no star (full saturation allowed)
     """
-    L_norm = L / 100.0
-
     # Reference: 2-scale ATWT decomposition
-    planes, _ = atrous_decomposition(L_norm, n_scales=2)
+    planes, _ = atrous_decomposition(L, n_scales=2)
 
     # Reference: energy = |plane[0]| + |plane[1]|
     energy = np.abs(planes[0]) + np.abs(planes[1])
@@ -241,14 +240,13 @@ def apply_saturation(
         Tuple of (saturated_data, stats_dict)
     """
     # Convert to LCH
-    lab = rgb_to_lab(data)
+    lab = rgb_to_lab(data, linear=True)
     L, C, H = lab_to_lch(lab)
 
     # Compute combined protection mask
     global_mask = _compute_global_mask(L, C, shadow_auth, protect_stars)
 
-    # Base saturation boost (reference: scales by 0.5 for 100% input)
-    base_sat_boost = saturation / 100.0 * 0.5
+    base_sat_boost = saturation / 100.0
 
     # Prepare per-vector parameters
     per_vector_sat = per_vector_sat or {}
@@ -260,7 +258,7 @@ def apply_saturation(
         # Saturation
         sat_override = per_vector_sat.get(name)
         if sat_override is not None:
-            sat_boosts.append(sat_override / 100.0 * 0.5)
+            sat_boosts.append(sat_override / 100.0)
         else:
             sat_boosts.append(base_sat_boost)
 
@@ -277,39 +275,32 @@ def apply_saturation(
     # Accumulate weighted saturation and hue changes
     total_sat_boost = np.zeros_like(C)
     total_hue_shift = np.zeros_like(H)
-    total_weight = np.zeros_like(C)
 
     for weight, sat_boost, hue_shift in zip(
         hue_weights, sat_boosts, hue_shifts, strict=True
     ):
         total_sat_boost += weight * sat_boost
         total_hue_shift += weight * hue_shift
-        total_weight += weight
-
-    # Normalize by total weight
-    total_weight = np.maximum(total_weight, 1e-6)
-    effective_sat_boost = total_sat_boost / total_weight
-    effective_hue_shift = total_hue_shift / total_weight
 
     # Apply with protection mask
     # Reference: C_final = C * (1 + delta_sat * mask)
-    C_boosted = C * (1.0 + effective_sat_boost * global_mask)
+    C_boosted = np.maximum(C * (1.0 + total_sat_boost * global_mask), 0)
 
     # Reference: H_final = H + (delta_hue * mask)
-    H_shifted = H + effective_hue_shift * global_mask
+    H_shifted = H + total_hue_shift * global_mask
 
     # Wrap hue to [0, 2*pi)
     H_shifted = H_shifted % (2 * np.pi)
 
     # Convert back to RGB
     lab_out = lch_to_lab(L, C_boosted, H_shifted)
-    rgb_out = lab_to_rgb(lab_out)
+    rgb_out = lab_to_rgb(lab_out, linear=True)
 
     # Collect statistics
     stats = {
         "base_sat_boost": float(base_sat_boost),
-        "effective_sat_boost_mean": float(np.mean(effective_sat_boost)),
-        "effective_hue_shift_mean_deg": float(np.degrees(np.mean(effective_hue_shift))),
+        "effective_sat_boost_mean": float(np.mean(total_sat_boost)),
+        "effective_hue_shift_mean_deg": float(np.degrees(np.mean(total_hue_shift))),
         "shadow_protection_mean": float(
             1.0 - np.mean(_compute_signal_mask(L, shadow_auth))
         ),

@@ -49,6 +49,7 @@ from .models import CompositionResult, StackInfo
 from .siril_file_ops import link_or_copy
 from .stretch_helpers import (
     apply_enhancements,
+    apply_linear_noise_reduction,
     apply_saturation,
     apply_stretch,
     save_all_formats,
@@ -83,7 +84,7 @@ def _apply_post_stretch(
         1. Color cast removal (SCNR green/magenta)
         2. Background color neutralization (linear match G,B to R)
         3. Saturation adjustment
-        4. VeraLux enhancements (Silentium denoise, Revela detail, Vectra saturation)
+        4. VeraLux enhancements (Revela detail, Vectra saturation)
     """
     if config.color_removal_mode != ColorRemovalMode.NONE:
         if not siril.load(image_name):
@@ -119,7 +120,7 @@ def _apply_veralux_processing(
     config: Config,
     log_fn: Callable[[str], None],
 ) -> None:
-    """Apply VeraLux post-processing (Silentium, Revela, Vectra) to stretched image."""
+    """Apply VeraLux post-processing (Revela, Vectra) to stretched image."""
     # Save current state to file for veralux processing
     if not siril.load(source_name):
         raise RuntimeError("Siril load failed during composition")
@@ -419,6 +420,8 @@ def compose_lrgb(
         )
 
     # working_dir was set above based on is_hdr mode
+    for source in (rgb_source, l_source):
+        apply_linear_noise_reduction(siril, working_dir / f"{source}.fit", cfg, log_fn)
 
     # =========================================================================
     # BRANCH 1: BASELINE WITH ORIGINAL STARS (always)
@@ -713,6 +716,8 @@ def compose_rgb(
         )
 
     working_dir = work_dir / "registered"
+
+    apply_linear_noise_reduction(siril, working_dir / f"{rgb_source}.fit", cfg, log_fn)
 
     # =========================================================================
     # BRANCH 1: BASELINE WITH ORIGINAL STARS (always)

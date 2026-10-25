@@ -165,43 +165,21 @@ class TestSolver:
         # Should find a positive log_d
         assert log_d > 0.0
 
-    def test_solver_respects_bounds(self):
-        """Solver should stay within bounds."""
+    def test_solver_respects_bounds(self) -> None:
+        """An unreachable target must not fall back outside the requested range."""
         log_d = solve_log_d(
             median_in=0.01,
-            target_median=0.20,
+            target_median=0.99,
             b=6.0,
-            log_d_min=1.0,
-            log_d_max=5.0,
+            log_d_min=3.0,
+            log_d_max=4.0,
         )
-        assert 1.0 <= log_d <= 5.0
+        assert 3.0 <= log_d <= 4.0
 
     def test_solver_handles_zero_median(self):
         """Solver should handle zero median gracefully."""
         log_d = solve_log_d(median_in=0.0, target_median=0.20, b=6.0)
         assert log_d == 2.0  # Default value
-
-    def test_star_pressure_damping_formula(self):
-        """Star pressure damping should be applied before solver per reference.
-
-        Reference formula (lines 1534-1536):
-            if star_pressure > 0.6:
-                target_temp *= (1.0 - 0.15 * star_pressure)
-        """
-        median_in = 0.01
-        target = 0.20
-        b = 6.0
-
-        # No damping when star_pressure <= 0.6
-        log_d_low = solve_log_d(median_in, target, b)
-
-        # With high star pressure (0.8), damping reduces effective target
-        star_pressure = 0.8
-        damped_target = target * (1.0 - 0.15 * star_pressure)
-        log_d_damped = solve_log_d(median_in, damped_target, b)
-
-        # Damped target is lower, so log_d should be lower
-        assert log_d_damped < log_d_low
 
 
 class TestMTF:

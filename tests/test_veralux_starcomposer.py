@@ -264,3 +264,43 @@ def test_faint_linear_star_survives_with_bright_outliers() -> None:
     np.testing.assert_allclose(result[:, 48, 48], 0.08)
     assert result.min() >= 0.08 - 1e-12
     assert result.max() <= 1.0
+
+
+def test_compose_matches_upstream_at_edges_and_sampled_background() -> None:
+    """Protect edge stars and the large-image adaptive black point."""
+    y, x = np.mgrid[:832, :832]
+    stars = np.stack(
+        [
+            0.002 + 0.03 * ((x % 11) / 10),
+            0.004 + 0.02 * ((y % 13) / 12),
+            0.001 + 0.01 * ((x % 7) / 6),
+        ]
+    ).astype(np.float32)
+    stars[:, 0, 0] = [0.7, 0.5, 0.3]
+    result, _ = compose_stars(np.full_like(stars, 0.1), stars, log_d=5, hardness=50)
+    # Independently executed StarComposer 2.1.1 process_star_pipeline with
+    # adaptive anchor, grip 0.5, Rec.709 weights, screen blend; surgery disabled.
+    # SHA256 829b9305f01df9cdb49df99048db473a135124dd21519a9db0828016e4fc541d
+    expected = [
+        [
+            0.9417595863342285,
+            0.14771658182144165,
+            0.19666707515716553,
+            0.19187664985656738,
+        ],
+        [
+            0.8039864897727966,
+            0.13532662391662598,
+            0.21272897720336914,
+            0.22127503156661987,
+        ],
+        [
+            0.602022647857666,
+            0.10000002384185791,
+            0.10000002384185791,
+            0.11677658557891846,
+        ],
+    ]
+    np.testing.assert_allclose(
+        result[:, [0, 1, 24, 831], [0, 1, 28, 831]], expected, atol=2e-6, rtol=0
+    )

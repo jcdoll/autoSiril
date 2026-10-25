@@ -57,3 +57,80 @@ LRGB reports the existing `rgb_linear.fit` as its linear RGB product.
 ## License
 
 The original VeraLux code is licensed under GPL-3.0-or-later.
+
+## Upstream behavior and justified differences
+
+Follow upstream algorithm behavior by default. A local deviation needs a reproduced
+bug or a controlled comparison that establishes why it is needed. Existing code
+and a subjective preference for stronger color are not sufficient justification.
+Compare appearance changes on retained image data before adopting them.
+
+The HyperMetric port follows [HyperMetric 1.5.2](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_HyperMetric_Stretch.py)
+for the final per-channel midtone curve and automatic background check. The old
+linked curve and one-pass solver changed color and contrast without evidence
+justifying those differences. Paired M31, M42 and M45 comparisons support removing
+them. With identical settings, automatic stretch values match upstream and output
+pixels differ by less than two 16-bit steps in those comparisons.
+
+Revela follows [Revela 1.0.2](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Revela.py):
+star protection strength is 1.0, structure uses the squared protection mask, and
+noise estimates have the upstream minimum floor. Native-resolution crops from the
+same three targets show the stronger protection chiefly reduces extra brightening
+around stars. There is no demonstrated reason to retain the old strength of 0.8.
+
+Vectra follows [Vectra 1.0.3](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Vectra.py):
+Lab conversion uses RGB samples directly, overlapping hue adjustments add together,
+and saturation sliders use their full upstream strength. Star protection measures
+Lab lightness on the 0-100 scale required by its threshold; the old 0-1 scale made
+that protection ineffective. Hue distances wrap across zero correctly. On the
+same three stretched RGB images, corrected output differs from upstream by less
+than 0.000002 per channel, compared with differences as large as 0.149 before.
+
+Silentium follows [Silentium 1.0.3](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Silentium.py)'s
+linear input requirement, direct RGB-to-Lab conversion, normalized lightness,
+linear signal detection, slider strengths and chroma shadow protection. It runs
+once before StarNet and stretching, on RGB plus luminance for broadband or each
+mono narrowband channel. Working files retain float precision. Native M31, M42
+and M45 RGB crops differ from the upstream no-star-list path by less than
+0.000002 per channel. A fixed display stretch shows the processing-order change
+without changing display parameters between images.
+
+StarComposer follows [StarComposer 2.1.1](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_StarComposer.py)'s
+mirror boundary for the small input blur, full-RGB anchor sampling stride, and
+scalar-only result at negligible color grip. The old boundary rule changed edge
+pixels by up to 0.021 on an M42 corner crop; the corrected result differs from
+upstream by less than 0.0000002 there.
+
+The following implementation differences remain:
+
+- FITS units come from storage type, not the brightest pixel. Integer samples are
+  divided by their type's maximum; floating-point samples retain their units.
+  Outliers are clipped on a processing copy, and non-finite inputs are rejected.
+  In a reproduced failure, changing one float pixel from 1.0999 to 1.1001 made the
+  old upstream scale guess change the whole image. Original files are untouched.
+- The existing NumPy/SciPy implementation uses analytic Lab conversion and
+  float64 arithmetic; upstream Revela uses OpenCV and float32. This avoids adding
+  OpenCV to production for a different numerical implementation of the same
+  formulas. On the three inspected crops, the maximum RGB difference is below
+  0.005 on a 0-1 scale. Giving the upstream engine the same Lab conversion reduces
+  the maximum difference below 0.000002. This is measured agreement, not bitwise
+  identity or a universal error bound.
+- Silentium uses the upstream no-star-list path (uniform four-pixel FWHM,
+  adaptive noise and chroma enabled). Its optional star-list mask is not ported.
+  Upstream reads `list.lst` implicitly from the working directory and can reuse
+  it without checking which image produced it. This pipeline processes several
+  channels in one directory, so importing that behavior could apply another
+  channel's stars. We keep the explicit no-list path rather than introduce that
+  dependency. This is not parity with the GUI's default star-mask option; adding
+  image-specific masks requires a separate comparison.
+- For usable signal, the bounded stretch solver returns its last candidate when
+  the requested target cannot be reached within the configured bounds. Upstream's inner solver can
+  instead return its initial 2.0 value. Retaining the candidate respects the
+  existing minimum/maximum controls rather than silently leaving their range.
+
+These comparisons use the existing pipeline settings: target background 0.10,
+IMX571 weights for the ASI2600, statistical anchor, and ready-to-use mode. These are
+explicit processing choices, not a claim to reproduce the upstream GUI defaults
+(target 0.20 and adaptive anchor enabled). GUI controls and scientific mode are
+not ported. Changes to those settings need their own appearance comparison; they
+are held fixed here so algorithm changes can be assessed independently.

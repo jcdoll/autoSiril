@@ -96,6 +96,24 @@ def apply_saturation(siril: "SirilInterface", config: Config) -> None:
         raise RuntimeError("Siril satu failed during composition")
 
 
+def apply_linear_noise_reduction(
+    siril: "SirilInterface",
+    image_path: Path,
+    config: Config,
+    log_fn: Callable[[str], None],
+) -> None:
+    """Denoise a generated linear working image before stretching or StarNet."""
+    from . import veralux_silentium
+
+    if config.veralux_silentium_enabled:
+        log_fn("Applying VeraLux Silentium to linear data...")
+        success, _ = veralux_silentium.apply_silentium(
+            siril, image_path, config, log_fn
+        )
+        if not success:
+            raise RuntimeError("Silentium failed on linear image")
+
+
 def apply_enhancements(
     siril: "SirilInterface",
     image_path: Path,
@@ -105,7 +123,7 @@ def apply_enhancements(
     """
     Apply VeraLux enhancement pipeline to a stretched image.
 
-    Order: Silentium (denoise) -> Revela (detail) -> Vectra (saturation)
+    Order: Revela (detail) -> Vectra (saturation). Silentium runs before stretch.
 
     Args:
         siril: Siril interface
@@ -113,17 +131,9 @@ def apply_enhancements(
         config: Configuration with enhancement settings
         log_fn: Logging function
     """
-    from . import veralux_revela, veralux_silentium, veralux_vectra
+    from . import veralux_revela, veralux_vectra
 
     cfg = config
-
-    if cfg.veralux_silentium_enabled:
-        log_fn("Applying VeraLux Silentium (noise reduction)...")
-        success, _stats = veralux_silentium.apply_silentium(
-            siril, image_path, cfg, log_fn
-        )
-        if not success:
-            log_fn("Silentium failed, continuing...")
 
     if cfg.veralux_revela_enabled:
         log_fn("Applying VeraLux Revela (detail enhancement)...")

@@ -244,7 +244,7 @@ def _multiscale_denoise(
         sigma_map: Local noise estimate map
         edge_map: Edge detection map
         signal_map: Signal probability map
-        intensity: Normalized intensity (0-2 range, from slider/50)
+        intensity: Normalized intensity (0-1 range, from slider/100)
         detail_guard: Normalized detail guard (0-1 range, from slider/100)
         shadow_smooth: Normalized shadow smoothness (0-1 range, from slider/100)
         is_chroma: Whether this is a chroma channel
@@ -261,6 +261,10 @@ def _multiscale_denoise(
     pad_sigma, _ = _pad_for_swt(sigma_map, max_levels)
     pad_edge, _ = _pad_for_swt(edge_map, max_levels)
     pad_signal, _ = _pad_for_swt(signal_map, max_levels)
+
+    # Upstream uses a uniform four-pixel FWHM when no star list is supplied.
+    default_fwhm = 4.0
+    pad_sigma = pad_sigma * default_fwhm
 
     # SWT decomposition
     coeffs = pywt.swt2(padded_channel, wavelet=wavelet, level=max_levels)
@@ -287,7 +291,7 @@ def _multiscale_denoise(
 
         # Detail guard map: robust_edge = edge * signal_probability
         # K=40 gives strong protection
-        robust_edge = pad_edge * pad_signal
+        robust_edge = pad_edge * pad_signal * default_fwhm
         K = 40.0
         guard_map = 1.0 + (K * detail_guard * robust_edge)
 
@@ -337,10 +341,10 @@ def denoise_image(
     shadow_smooth: float = 10.0,
 ) -> tuple[np.ndarray, dict[str, float]]:
     """
-    Denoise RGB image with separate luminance and chroma processing.
+    Denoise linear RGB or mono data using upstream's no-star-list path.
 
     Args:
-        data: RGB image data, shape (3, H, W), values in [0, 1]
+        data: Linear RGB (3, H, W) or mono (H, W), values in [0, 1]
         intensity: Luminance noise reduction (0-100 slider units)
         detail_guard: Detail protection strength (0-100 slider units)
         chroma: Chroma noise reduction (0-100 slider units)
@@ -349,70 +353,59 @@ def denoise_image(
     Returns:
         Tuple of (denoised_data, stats_dict)
     """
-    # Convert to LAB
-    lab = rgb_to_lab(data)
-    L, a, b = lab[0], lab[1], lab[2]
+    is_mono = data.ndim == 2
+    if is_mono:
+        data = np.broadcast_to(data, (3, *data.shape))
 
-    # Compute maps from luminance
+    # Upstream gates on linear mean RGB, not nonlinear Lab lightness.
+    signal_map = _compute_signal_probability(np.mean(data, axis=0))
+    lab = rgb_to_lab(data, linear=True)
+    L, a, b = lab[0] / 100.0, lab[1], lab[2]
     sigma_map_L, L_noise = _estimate_noise_map(L)
     edge_map = _compute_edge_map(L)
-    signal_map = _compute_signal_probability(L)
+    sigma_map_a, a_noise = _estimate_noise_map(a)
+    sigma_map_b, b_noise = _estimate_noise_map(b)
 
-    # Estimate chroma noise
-    _, a_noise = _estimate_noise_map(a)
-    _, b_noise = _estimate_noise_map(b)
+    intensity_norm = float(np.clip(intensity / 100.0, 0, 1))
+    guard_norm = float(np.clip(detail_guard / 100.0, 0, 1))
+    shadow_norm = float(np.clip(shadow_smooth / 100.0, 0, 1))
+    chroma_norm = float(np.clip(chroma / 100.0, 0, 1))
 
-    # Convert slider units to normalized values
-    intensity_norm = intensity / 50.0
-    guard_norm = detail_guard / 100.0
-    shadow_norm = shadow_smooth / 100.0
-    chroma_intensity_norm = chroma / 50.0
-
-    # Denoise luminance
     L_denoised = _multiscale_denoise(
-        channel=L,
-        sigma_map=sigma_map_L,
-        edge_map=edge_map,
-        signal_map=signal_map,
-        intensity=intensity_norm,
-        detail_guard=guard_norm,
-        shadow_smooth=shadow_norm,
-        is_chroma=False,
+        L,
+        sigma_map_L,
+        edge_map,
+        signal_map,
+        intensity_norm,
+        guard_norm,
+        shadow_norm,
     )
+    if chroma_norm > 0.01:
+        a = _multiscale_denoise(
+            a,
+            sigma_map_a,
+            edge_map,
+            signal_map,
+            chroma_norm,
+            guard_norm * 0.5,
+            shadow_norm * 0.5,
+            is_chroma=True,
+        )
+        b = _multiscale_denoise(
+            b,
+            sigma_map_b,
+            edge_map,
+            signal_map,
+            chroma_norm,
+            guard_norm * 0.5,
+            shadow_norm * 0.5,
+            is_chroma=True,
+        )
 
-    # Compute chroma noise maps
-    sigma_map_a, _ = _estimate_noise_map(a)
-    sigma_map_b, _ = _estimate_noise_map(b)
-
-    # Denoise chroma channels with reduced guard (edges less critical in color)
-    a_denoised = _multiscale_denoise(
-        channel=a,
-        sigma_map=sigma_map_a,
-        edge_map=edge_map,
-        signal_map=signal_map,
-        intensity=chroma_intensity_norm,
-        detail_guard=guard_norm * 0.5,
-        shadow_smooth=0.0,
-        is_chroma=True,
-    )
-
-    b_denoised = _multiscale_denoise(
-        channel=b,
-        sigma_map=sigma_map_b,
-        edge_map=edge_map,
-        signal_map=signal_map,
-        intensity=chroma_intensity_norm,
-        detail_guard=guard_norm * 0.5,
-        shadow_smooth=0.0,
-        is_chroma=True,
-    )
-
-    # Clip luminance to valid range
-    L_denoised = np.clip(L_denoised, 0, 100)
-
-    # Reconstruct LAB and convert back to RGB
-    lab_denoised = np.stack([L_denoised, a_denoised, b_denoised], axis=0)
-    rgb_denoised = lab_to_rgb(lab_denoised)
+    lab_denoised = np.stack([np.clip(L_denoised, 0, 1) * 100, a, b], axis=0)
+    rgb_denoised = lab_to_rgb(lab_denoised, linear=True)
+    if is_mono:
+        rgb_denoised = rgb_denoised[0]
 
     stats = {
         "L_noise_estimate": L_noise,
@@ -456,12 +449,12 @@ def apply_silentium(
         f"chroma={config.veralux_silentium_chroma}"
     )
 
-    with fits.open(image_path) as hdul:
+    with fits.open(image_path, memmap=False) as hdul:
         data = normalized_image(hdul[0].data)
         header = hdul[0].header.copy()
 
-    if data.ndim != 3 or data.shape[0] != 3:
-        log("Silentium: Image must be RGB (3, H, W)")
+    if data.ndim != 2 and (data.ndim != 3 or data.shape[0] != 3):
+        log("Silentium: Image must be RGB (3, H, W) or mono (H, W)")
         return False, {}
 
     denoised, stats = denoise_image(
@@ -472,7 +465,8 @@ def apply_silentium(
         shadow_smooth=config.veralux_silentium_shadow_smooth,
     )
 
-    out_data = np.clip(denoised * 65535, 0, 65535).astype(np.uint16)
+    # Preserve faint linear signal for the later stretch.
+    out_data = denoised.astype(np.float32)
     hdu = fits.PrimaryHDU(out_data, header=header)
     hdu.writeto(image_path, overwrite=True)
 

@@ -1,6 +1,7 @@
 """Tests for veralux_silentium module."""
 
 import numpy as np
+import pytest
 
 from siril_job_runner.veralux_silentium import (
     _compute_edge_map,
@@ -150,3 +151,54 @@ class TestDenoiseImage:
         _, stats_high = denoise_image(data, chroma=90)
 
         assert stats_high["chroma_intensity"] > stats_low["chroma_intensity"]
+
+
+@pytest.mark.parametrize("mono", [False, True])
+def test_denoise_matches_upstream_linear_reference(mono: bool) -> None:
+    """Check RGB and mono signal/noise treatment, including wavelet padding."""
+    y, x = np.mgrid[:65, :67]
+    signal = (
+        0.01
+        + 0.025 * np.exp(-((x - 33) ** 2 + (y - 32) ** 2) / 80)
+        + 0.003 * np.sin(x * 1.7) * np.cos(y * 2.3)
+    )
+    data = np.stack([signal * 1.4, signal, signal * 0.6]).astype(np.float32)
+    if mono:
+        data = data[0]
+    result, _ = denoise_image(data)
+    # Independently executed Silentium 1.0.3 apply_noise_reduction, with adaptive
+    # noise, chroma enabled, no star list; sliders 25/50/30/10. Sample edges too.
+    # SHA256 62e9db5e1f470d38d8e635da9d1f892ee59ab6b6477e471b69d2725de5d655f8
+    expected = (
+        [
+            0.014196471311151981,
+            0.024809563532471657,
+            0.04912487417459488,
+            0.014069920405745506,
+        ]
+        if mono
+        else [
+            [
+                0.014109711162745953,
+                0.024805283173918724,
+                0.049123018980026245,
+                0.014410112984478474,
+            ],
+            [
+                0.010151722468435764,
+                0.017721395939588547,
+                0.03508654236793518,
+                0.010013359598815441,
+            ],
+            [
+                0.006219780538231134,
+                0.010646723210811615,
+                0.021057678386569023,
+                0.005520770326256752,
+            ],
+        ]
+    )
+    assert result.shape == data.shape
+    np.testing.assert_allclose(
+        result[..., [0, 24, 32, 64], [0, 28, 33, 66]], expected, atol=2e-7, rtol=0
+    )

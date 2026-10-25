@@ -50,12 +50,12 @@ def _compute_signal_mask(L: np.ndarray, shadow_auth: float) -> np.ndarray:
 
     median = np.median(L)
     mad = np.median(np.abs(L - median))
-    sigma = 1.4826 * mad
+    sigma = max(1.4826 * mad, 1e-6)
 
     noise_floor = median + threshold_sigma * sigma
 
     # Signal mask: smooth ramp from noise floor
-    signal_mask = np.clip((L - noise_floor) / (2.0 * sigma + 1e-10), 0, 1)
+    signal_mask = np.clip((L - noise_floor) / (2.0 * sigma + 1e-9), 0, 1)
 
     # Smooth the mask with 3x3 box blur (reference: cv2.blur(mask, (3, 3)))
     kernel = np.ones((3, 3), dtype=np.float64) / 9.0
@@ -65,7 +65,7 @@ def _compute_signal_mask(L: np.ndarray, shadow_auth: float) -> np.ndarray:
 
 
 def _compute_star_mask_energy(
-    planes: list[np.ndarray], strength: float = 0.8
+    planes: list[np.ndarray],
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute star protection masks using wavelet energy detection.
@@ -79,7 +79,6 @@ def _compute_star_mask_energy(
 
     Args:
         planes: Wavelet detail planes from ATWT decomposition
-        strength: Protection strength (0-1)
 
     Returns:
         Tuple of (texture_protection, structure_protection) masks
@@ -92,12 +91,12 @@ def _compute_star_mask_energy(
     # MAD-based threshold for star detection
     med_energy = np.median(energy)
     mad_energy = np.median(np.abs(energy - med_energy))
-    sigma_energy = 1.4826 * mad_energy
+    sigma_energy = max(1.4826 * mad_energy, 1e-6)
 
     threshold = med_energy + 4.0 * sigma_energy
 
     # Star map with smooth ramp
-    star_map = np.clip((energy - threshold) / (2.0 * sigma_energy + 1e-10), 0, 1)
+    star_map = np.clip((energy - threshold) / (2.0 * sigma_energy + 1e-9), 0, 1)
 
     # Smooth and clip for clean edges (reference: cv2.blur with (5, 5))
     kernel_5x5 = np.ones((5, 5), dtype=np.float64) / 25.0
@@ -106,11 +105,10 @@ def _compute_star_mask_energy(
     star_map = convolve(star_map, kernel_5x5, mode="reflect")
 
     # Protection mask for texture (where 1 = full enhancement allowed)
-    star_protection_tex = 1.0 - (star_map * strength)
+    star_protection_tex = 1.0 - star_map
 
     # Tighter protection for structure (squared mask)
-    star_map_structure = np.clip(star_map**2, 0, 1)
-    star_protection_str = 1.0 - (star_map_structure * strength)
+    star_protection_str = star_protection_tex**2
 
     return star_protection_tex.astype(np.float64), star_protection_str.astype(
         np.float64
@@ -156,7 +154,7 @@ def enhance_details(
 
     # Compute star protection masks from wavelet planes
     if protect_stars:
-        star_prot_tex, star_prot_str = _compute_star_mask_energy(planes, strength=0.8)
+        star_prot_tex, star_prot_str = _compute_star_mask_energy(planes)
     else:
         star_prot_tex = np.ones_like(L)
         star_prot_str = np.ones_like(L)
