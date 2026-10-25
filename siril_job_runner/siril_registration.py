@@ -179,7 +179,6 @@ class SirilRegistrationMixin:
         if fastnorm:
             cmd += " -fastnorm"
         if out:
-            out = out.replace("\\", "/")
             cmd += f" {quote_siril_arg('-out=' + out)}"
         return self.execute(cmd)
 

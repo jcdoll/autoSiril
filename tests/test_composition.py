@@ -169,47 +169,18 @@ def test_missing_hdr_registration_output_never_uses_unaligned_source(
 
 
 @pytest.mark.parametrize("job_type,channels", [("RGB", "BGR"), ("LRGB", "BGLR")])
-def test_suffix_result_points_to_current_archived_image(
+def test_full_job_archives_current_images_with_requested_suffix(
     tmp_path: Path,
     job_type: str,
     channels: str,
 ) -> None:
-    """Returned paths use the same suffix as the files actually exported."""
-    output = tmp_path / "processed"
-    selected = write_stacks(output, channels)
-    retired = write_stacks(output, channels, 180)
-    # Composition must ignore obsolete exposure groups when current paths are supplied.
-    result = compose_and_stretch(
-        image_siril(output),
-        output,
-        job_type,
-        config(output_suffix="review"),
-        stack_paths=selected,
-    )
-    assert result.auto_fit.name.endswith("_review.fit")
-    assert result.linear_path is not None
-    np.testing.assert_allclose(
-        np.median(fits.getdata(result.linear_path), axis=(1, 2)),
-        [0.1 * channels.index(c) + 0.1 for c in "RGB"],
-    )
-    job = ManagedJobOutput(
-        tmp_path / "job.json", "Test", job_type, output, tmp_path / "archive"
-    )
-    _, archived = archive_composition_outputs(job, result)
-    np.testing.assert_array_equal(
-        fits.getdata(result.auto_fit), fits.getdata(archived.auto_fit)
-    )
-    assert all(path.exists() for path in retired)
-
-
-def test_full_job_uses_only_current_preprocessing_outputs(tmp_path: Path) -> None:
-    """Full job orchestration must pass its selected stacks into composition."""
-    job = tmp_path / "job.json"
-    job.write_text(
+    """Retired exposure groups cannot enter current, correctly named exports."""
+    job_path = tmp_path / "job.json"
+    job_path.write_text(
         json.dumps(
             {
                 "name": "Test",
-                "type": "RGB",
+                "type": job_type,
                 "lights": {"R": ["lights"]},
                 "calibration": {
                     "bias": "2026_10_01",
@@ -221,16 +192,35 @@ def test_full_job_uses_only_current_preprocessing_outputs(tmp_path: Path) -> Non
         )
     )
     output = tmp_path / "processed"
-    selected = write_stacks(output, "BGR")
-    write_stacks(output, "BGR", 180)
-    runner = JobRunner(job, tmp_path, siril=image_siril(output))
-    runner.config.config = config()
+    selected = write_stacks(output, channels)
+    retired = write_stacks(output, channels, 180)
+    # Both exposure groups are valid HDR inputs, with different observable pixels.
+    # An accidental HDR run must fail the output assertion, not fixture validation.
+    for paths, offset in [(selected, 0.0), (retired, 0.05)]:
+        for index, path in enumerate(paths, 1):
+            pixels = np.broadcast_to(
+                np.linspace(0.1 * index - 0.04, 0.1 * index + 0.04, 32), (32, 32)
+            )
+            fits.writeto(path, pixels + offset, overwrite=True)
+    runner = JobRunner(job_path, tmp_path, siril=image_siril(output))
+    runner.config.config = config(output_suffix="review")
     runner.validate = MagicMock(return_value=ValidationResult(True, [], [], [], [], ""))
     runner.run_calibration = MagicMock()
     runner.run_preprocessing = MagicMock(return_value={p.stem: p for p in selected})
     try:
         result = runner.run()
-        assert result is not None and result.auto_fit.is_file()
+        assert result is not None and result.linear_path is not None
+        assert result.auto_fit.name.endswith("_review.fit")
+        np.testing.assert_allclose(
+            np.median(fits.getdata(result.linear_path), axis=(1, 2)),
+            [0.1 * channels.index(c) + 0.1 for c in "RGB"],
+        )
+        job = ManagedJobOutput(job_path, "Test", job_type, output, tmp_path / "archive")
+        _, archived = archive_composition_outputs(job, result)
+        np.testing.assert_array_equal(
+            fits.getdata(result.auto_fit), fits.getdata(archived.auto_fit)
+        )
+        assert all(path.exists() for path in retired)
     finally:
         runner.close()
 

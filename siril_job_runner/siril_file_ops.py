@@ -47,25 +47,20 @@ class SirilFileOpsMixin:
 
     def cd(self, path: str) -> bool:
         """Change working directory."""
-        # Normalize path separators for Siril
-        path = path.replace("\\", "/")
         return self.execute(f"cd {quote_siril_arg(path)}")
 
     # File operations
 
     def load(self, path: str) -> bool:
         """Load an image file."""
-        path = path.replace("\\", "/")
         return self.execute(f"load {quote_siril_arg(path)}")
 
     def save(self, path: str) -> bool:
         """Save current image."""
-        path = path.replace("\\", "/")
         return self.execute(f"save {quote_siril_arg(path)}")
 
     def savetif(self, path: str, astro: bool = False, deflate: bool = False) -> bool:
         """Save as TIFF."""
-        path = path.replace("\\", "/")
         opts = []
         if astro:
             opts.append("-astro")
@@ -76,7 +71,6 @@ class SirilFileOpsMixin:
 
     def savejpg(self, path: str, quality: int = 90) -> bool:
         """Save as JPEG."""
-        path = path.replace("\\", "/")
         return self.execute(f"savejpg {quote_siril_arg(path)} {quality}")
 
     def close(self) -> bool:
@@ -89,15 +83,11 @@ class SirilFileOpsMixin:
         """Convert files to Siril sequence."""
         cmd = f"convert {quote_siril_arg(name)}"
         if out:
-            out = out.replace("\\", "/")
             cmd += f" {quote_siril_arg('-out=' + out)}"
         return self.execute(cmd)
 
     def split(self, r_file: str, g_file: str, b_file: str) -> bool:
         """Split loaded RGB image into three mono channel files."""
-        r_file = r_file.replace("\\", "/")
-        g_file = g_file.replace("\\", "/")
-        b_file = b_file.replace("\\", "/")
         return self.execute(
             f"split {quote_siril_arg(r_file)} {quote_siril_arg(g_file)} {quote_siril_arg(b_file)}"
         )
