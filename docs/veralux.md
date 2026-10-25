@@ -97,9 +97,25 @@ without changing display parameters between images.
 
 For this pipeline, Silentium defaults to intensity 10 and shadow smoothing 0,
 instead of upstream's 25 and 10. Detail protection stays at 50 and chroma at 30;
-the algorithm is unchanged. This is an approved preference for less smoothing,
-supported most clearly by the SH2-184 crop comparison. Full-image comparisons
-and per-image tuning remain pending; these values are not a universal optimum.
+the algorithm is unchanged. Full-resolution paired renders of M31, M42, IC2118,
+LDN1082, SH2-184 and SH2-103 compared 25/10 with 10/0 using identical registered,
+HDR and color-calibrated input pixels where applicable. Overviews and native-pixel
+crops show less smoothing and more fine grain at 10/0. The preference is clearest
+on SH2-184 and SH2-103; it is not proof of recovered detail or a universal optimum.
+Automatic stretching also responds to the changed pixels: M31, SH2-184 and IC2118
+have darker subject regions, especially in autostretch.
+
+LDN1082 uses intensity 15 with shadow smoothing still at 0. A third full-image
+render reduced distracting fine grain around its dark dust lanes compared with
+10/0, without returning to the more smeared appearance of 25/10. The other five
+reviewed targets keep 10/0; no further overrides were justified by these images.
+
+These comparisons do not approve overall image quality. Both settings retain
+M42's small-star rings and clipped autostretch core, and IC2118's large colored
+halos, uneven background and thin vertical line. All four broadband targets
+report imprecise SPCC calibration; their paired calibrated pixels still match.
+Address those limitations separately rather than masking them with stronger
+denoising. M45 keeps its existing denoising-disabled setting and was not rerendered.
 
 StarComposer follows [StarComposer 2.1.1](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_StarComposer.py)'s
 mirror boundary for the small input blur, full-RGB anchor sampling stride, and
