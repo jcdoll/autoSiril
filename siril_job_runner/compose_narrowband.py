@@ -28,6 +28,7 @@ from .compose_helpers import (
     apply_color_removal,
     apply_deconvolution,
     neutralize_rgb_background,
+    register_composition_stacks,
     save_diagnostic_preview,
 )
 from .config import (
@@ -39,7 +40,6 @@ from .config import (
 )
 from .models import CompositionResult, StackInfo
 from .palettes import build_effective_palette, formula_to_pixelmath, get_palette
-from .siril_file_ops import link_or_copy
 from .stretch_helpers import (
     apply_enhancements,
     apply_saturation,
@@ -79,14 +79,18 @@ def _separate_stars_linear(
 
     # Run StarNet on all linear channels
     for ch in all_channels:
-        siril.load(f"{ch}_linear")
+        if not siril.load(f"{ch}_linear"):
+            raise RuntimeError("Siril load failed during composition")
         siril.starnet(stretch=True)  # Linear data, needs internal stretch
-        siril.save(f"{ch}_linear_starless")
+        if not siril.save(f"{ch}_linear_starless"):
+            raise RuntimeError("Siril save failed during composition")
         # StarNet creates starmask_<filename>.fit in the working directory
         starmask_path = registered_dir / f"starmask_{ch}_linear.fit"
         if starmask_path.exists() and ch == star_source_ch:
-            siril.load(str(starmask_path))
-            siril.save("stars_source")
+            if not siril.load(str(starmask_path)):
+                raise RuntimeError("Siril load failed during composition")
+            if not siril.save("stars_source"):
+                raise RuntimeError("Siril save failed during composition")
             log_fn(f"    {ch}: starless saved, stars extracted (source)")
         else:
             log_fn(f"    {ch}: starless saved")
@@ -115,10 +119,13 @@ def _apply_scale_expressions(
     for ch in narrowband_channels:
         expr = scale_exprs.get(ch)
         if expr:
-            siril.load(ch)
+            if not siril.load(ch):
+                raise RuntimeError("Siril load failed during composition")
             pm_expr = formula_to_pixelmath(expr)
-            siril.pm(pm_expr)
-            siril.save(ch)
+            if not siril.pm(pm_expr):
+                raise RuntimeError("Siril pm failed during composition")
+            if not siril.save(ch):
+                raise RuntimeError("Siril save failed during composition")
             log_fn(f"  {ch}: scaled with {expr}")
 
 
@@ -186,44 +193,28 @@ def compose_narrowband(
     channels_sorted = sorted(required)
     channel_to_num = {ch: f"{i + 1:05d}" for i, ch in enumerate(channels_sorted)}
 
-    # Create working directory with numbered files for Siril's convert
+    # Working files are separate from the retained source stacks.
     work_dir = stacks_dir / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    log_fn("Preparing stacks for registration...")
-    for ch, idx in channel_to_num.items():
-        src_path = stacks[ch][0].path
-        link_path = work_dir / f"stack_{idx}.fit"
-        link_or_copy(src_path, link_path)
-        log_fn(f"  {ch}: {src_path.name} -> stack_{idx}.fit")
-
-    siril.cd(str(work_dir))
-
-    # Register stacks
-    log_fn("Cross-registering stacks...")
-    siril.convert("stack", out="./registered")
-    siril.cd(str(work_dir / "registered"))
-
     cfg = config
-    if cfg.cross_reg_twopass:
-        log_fn("Using 2-pass registration (Siril auto-selects reference)")
-        siril.register("stack", twopass=True)
-    else:
-        ref_ch = "L" if has_luminance else "H"
-        ref_idx = int(channel_to_num[ref_ch])
-        siril.setref("stack", ref_idx)
-        log_fn(
-            f"Using 1-pass registration with {ref_ch} as reference (image {ref_idx})"
-        )
-        siril.register("stack", twopass=False)
-
-    siril.seqapplyreg("stack", framing="min")
+    ref_ch = "L" if has_luminance else "H"
+    log_fn("Cross-registering stacks...")
+    register_composition_stacks(
+        siril,
+        [stacks[ch][0].path for ch in channels_sorted],
+        work_dir,
+        int(channel_to_num[ref_ch]),
+        cfg.cross_reg_twopass,
+    )
 
     # Save registered channels
     log_fn("Saving registered channels...")
     for ch, idx in channel_to_num.items():
-        siril.load(f"r_stack_{idx}")
-        siril.save(ch)
+        if not siril.load(f"r_stack_{idx}"):
+            raise RuntimeError("Siril load failed during composition")
+        if not siril.save(ch):
+            raise RuntimeError("Siril save failed during composition")
         log_fn(f"  {ch}: saved")
 
     # Post-stack background extraction
@@ -235,7 +226,8 @@ def compose_narrowband(
         )
         log_fn(f"Post-stack background extraction ({method_desc})...")
         for ch in required:
-            siril.load(ch)
+            if not siril.load(ch):
+                raise RuntimeError("Siril load failed during composition")
             if siril.subsky(
                 rbf=(cfg.post_stack_subsky_method == SubskyMethod.RBF),
                 degree=cfg.post_stack_subsky_degree,
@@ -243,7 +235,8 @@ def compose_narrowband(
                 tolerance=cfg.post_stack_subsky_tolerance,
                 smooth=cfg.post_stack_subsky_smooth,
             ):
-                siril.save(ch)
+                if not siril.save(ch):
+                    raise RuntimeError("Siril save failed during composition")
                 log_fn(f"  {ch}: background extracted")
             else:
                 log_fn(f"  {ch}: subsky failed, using original")
@@ -258,15 +251,18 @@ def compose_narrowband(
                     f"Balancing channels to {ref_ch} "
                     f"(bounds: {cfg.narrowband_balance_low:.2f}-{cfg.narrowband_balance_high:.2f})..."
                 )
-                siril.load(ref_ch)
+                if not siril.load(ref_ch):
+                    raise RuntimeError("Siril load failed during composition")
                 for ch in channels_to_match:
-                    siril.load(ch)
+                    if not siril.load(ch):
+                        raise RuntimeError("Siril load failed during composition")
                     if siril.linear_match(
                         ref=ref_ch,
                         low=cfg.narrowband_balance_low,
                         high=cfg.narrowband_balance_high,
                     ):
-                        siril.save(ch)
+                        if not siril.save(ch):
+                            raise RuntimeError("Siril save failed during composition")
                         log_fn(f"  {ch}: matched to {ref_ch}")
                     else:
                         log_fn(f"  {ch}: linear_match failed, using original")
@@ -290,8 +286,10 @@ def compose_narrowband(
 
     log_fn("Saving linear channels...")
     for ch in all_channels:
-        siril.load(ch)
-        siril.save(f"{ch}_linear")
+        if not siril.load(ch):
+            raise RuntimeError("Siril load failed during composition")
+        if not siril.save(f"{ch}_linear"):
+            raise RuntimeError("Siril save failed during composition")
 
     # LinearFit to weakest channel (optional, for dynamic palettes)
     if cfg.palette_linearfit_to_weakest:
@@ -310,9 +308,11 @@ def compose_narrowband(
                 f"LinearFit to weakest channel ({ref_ch}, max={channel_max[ref_ch]:.4f})..."
             )
             for ch in channels_to_fit:
-                siril.load(f"{ch}_linear")
+                if not siril.load(f"{ch}_linear"):
+                    raise RuntimeError("Siril load failed during composition")
                 if siril.linear_match(ref=f"{ref_ch}_linear"):
-                    siril.save(f"{ch}_linear")
+                    if not siril.save(f"{ch}_linear"):
+                        raise RuntimeError("Siril save failed during composition")
                     log_fn(f"  {ch}: fitted to {ref_ch}")
                 else:
                     log_fn(f"  {ch}: linear_match failed, using original")
@@ -321,24 +321,37 @@ def compose_narrowband(
     def apply_palette_combination():
         """Apply palette formulas to currently loaded/saved channels."""
         if palette.is_simple():
-            siril.rgbcomp(r=palette.r, g=palette.g, b=palette.b, out="narrowband_rgb")
+            if not siril.rgbcomp(
+                r=palette.r, g=palette.g, b=palette.b, out="narrowband_rgb"
+            ):
+                raise RuntimeError("Siril rgbcomp failed during composition")
         else:
             r_pm = formula_to_pixelmath(palette.r)
             g_pm = formula_to_pixelmath(palette.g)
             b_pm = formula_to_pixelmath(palette.b)
-            siril.pm(r_pm)
-            siril.save("_pm_r")
-            siril.pm(g_pm)
-            siril.save("_pm_g")
-            siril.pm(b_pm)
-            siril.save("_pm_b")
-            siril.rgbcomp(r="_pm_r", g="_pm_g", b="_pm_b", out="narrowband_rgb")
+            if not siril.pm(r_pm):
+                raise RuntimeError("Siril pm failed during composition")
+            if not siril.save("_pm_r"):
+                raise RuntimeError("Siril save failed during composition")
+            if not siril.pm(g_pm):
+                raise RuntimeError("Siril pm failed during composition")
+            if not siril.save("_pm_g"):
+                raise RuntimeError("Siril save failed during composition")
+            if not siril.pm(b_pm):
+                raise RuntimeError("Siril pm failed during composition")
+            if not siril.save("_pm_b"):
+                raise RuntimeError("Siril save failed during composition")
+            if not siril.rgbcomp(r="_pm_r", g="_pm_g", b="_pm_b", out="narrowband_rgb"):
+                raise RuntimeError("Siril rgbcomp failed during composition")
 
         if has_luminance:
-            siril.rgbcomp(lum="L", rgb="narrowband_rgb", out="narrowband")
+            if not siril.rgbcomp(lum="L", rgb="narrowband_rgb", out="narrowband"):
+                raise RuntimeError("Siril rgbcomp failed during composition")
         else:
-            siril.load("narrowband_rgb")
-            siril.save("narrowband")
+            if not siril.load("narrowband_rgb"):
+                raise RuntimeError("Siril load failed during composition")
+            if not siril.save("narrowband"):
+                raise RuntimeError("Siril save failed during composition")
 
     # Log palette info
     log_fn(
@@ -366,8 +379,10 @@ def compose_narrowband(
                 ch,
             )
             if deconv_result == f"{ch}_linear_deconv":
-                siril.load(f"{ch}_linear_deconv")
-                siril.save(f"{ch}_linear")
+                if not siril.load(f"{ch}_linear_deconv"):
+                    raise RuntimeError("Siril load failed during composition")
+                if not siril.save(f"{ch}_linear"):
+                    raise RuntimeError("Siril save failed during composition")
                 log_fn(f"  {ch}: deconvolved")
 
     # ==========================================================================
@@ -380,7 +395,8 @@ def compose_narrowband(
         )
         # Save stars output
         if star_source_ch:
-            siril.load("stars_source")
+            if not siril.load("stars_source"):
+                raise RuntimeError("Siril load failed during composition")
             stars_name = f"{type_name}_stars"
             save_all_formats(siril, output_dir, stars_name, log_fn)
 
@@ -406,13 +422,17 @@ def compose_narrowband(
         # Step 1: Stretch each channel (use starless if available)
         for ch in all_channels:
             if cfg.starnet_enabled and star_source_ch:
-                siril.load(f"{ch}_linear_starless")
+                if not siril.load(f"{ch}_linear_starless"):
+                    raise RuntimeError("Siril load failed during composition")
                 ch_path = registered_dir / f"{ch}_linear_starless.fit"
             else:
-                siril.load(f"{ch}_linear")
+                if not siril.load(f"{ch}_linear"):
+                    raise RuntimeError("Siril load failed during composition")
                 ch_path = registered_dir / f"{ch}_linear.fit"
-            apply_stretch(siril, method, ch_path, cfg, log_fn)
-            siril.save(ch)
+            if not apply_stretch(siril, method, ch_path, cfg, log_fn):
+                raise RuntimeError("apply_stretch failed during composition")
+            if not siril.save(ch):
+                raise RuntimeError("Siril save failed during composition")
             log_fn(f"  {ch}: stretched ({method})")
 
         # Step 2: Apply channel scale expressions
@@ -423,24 +443,32 @@ def compose_narrowband(
 
         # Save the first stretched palette before color adjustments
         if primary_paths is None:
-            siril.load("narrowband")
-            siril.save(str(palette_path))
+            if not siril.load("narrowband"):
+                raise RuntimeError("Siril load failed during composition")
+            if not siril.save(str(palette_path)):
+                raise RuntimeError("Siril save failed during composition")
             log_fn(f"Saved stretched palette: {palette_path.name}")
             log_color_balance_fn(palette_path)
 
         # Step 4: Color removal (SCNR)
         if cfg.color_removal_mode != ColorRemovalMode.NONE:
-            siril.load("narrowband")
-            apply_color_removal(siril, cfg, log_fn)
-            siril.save("narrowband")
+            if not siril.load("narrowband"):
+                raise RuntimeError("Siril load failed during composition")
+            if not apply_color_removal(siril, cfg, log_fn):
+                raise RuntimeError("apply_color_removal failed during composition")
+            if not siril.save("narrowband"):
+                raise RuntimeError("Siril save failed during composition")
 
         # Step 5: Neutralize RGB background
-        if cfg.narrowband_neutralization:
-            neutralize_rgb_background(siril, "narrowband", cfg, log_fn)
+        if cfg.narrowband_neutralization and not neutralize_rgb_background(
+            siril, "narrowband", cfg, log_fn
+        ):
+            raise RuntimeError("neutralize_rgb_background failed during composition")
 
         # Step 6: Save starless output (if star separation enabled)
         if cfg.starnet_enabled and star_source_ch:
-            siril.load("narrowband")
+            if not siril.load("narrowband"):
+                raise RuntimeError("Siril load failed during composition")
             starless_name = f"{type_name}_starless{suffix}"
             save_all_formats(siril, output_dir, starless_name, log_fn, cfg)
 
@@ -454,15 +482,18 @@ def compose_narrowband(
             )
             if not success:
                 raise RuntimeError("StarComposer failed to restore narrowband stars")
-            siril.save("narrowband")
+            if not siril.save("narrowband"):
+                raise RuntimeError("Siril save failed during composition")
 
         # Step 8: Apply saturation
-        siril.load("narrowband")
+        if not siril.load("narrowband"):
+            raise RuntimeError("Siril load failed during composition")
         apply_saturation(siril, cfg)
 
         # Step 9: Apply enhancements (Silentium/Revela/Vectra) if enabled
         base_name = f"{type_name}_auto{suffix}"
-        siril.save(str(output_dir / base_name))
+        if not siril.save(str(output_dir / base_name)):
+            raise RuntimeError("Siril save failed during composition")
         image_path = output_dir / f"{base_name}.fit"
         apply_enhancements(siril, image_path, cfg, log_fn)
 

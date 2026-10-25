@@ -5,12 +5,13 @@ Handles LRGB composition, narrowband palette mixing, and stretching.
 Based on LRGB_pre.ssf and LRGB_compose.ssf workflows.
 """
 
-import shutil
+from collections.abc import Collection
 from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
 from .compose_broadband import compose_lrgb, compose_rgb
+from .compose_helpers import register_composition_stacks
 from .compose_narrowband import compose_narrowband
 from .config import DEFAULTS, Config
 from .fits_utils import check_color_balance
@@ -85,50 +86,16 @@ def _cross_register_stacks(
     work_dir = output_dir / "stacks" / "hdr_register"
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy all stacks with sequential numbered names
-    log("Preparing stacks for registration...")
-    for i, (channel, stack) in enumerate(all_stacks):
-        src_path = stack.path
-        dst_path = work_dir / f"stack_{i + 1:05d}.fit"
-        shutil.copy2(src_path, dst_path)
-        log(f"  {i + 1}: {stack.name} ({channel} {stack.exposure}s)")
-
-    # Run Siril registration
-    siril.cd(str(work_dir))
-    siril.convert("stack", out="./registered")
-    siril.cd(str(work_dir / "registered"))
-
-    if config.cross_reg_twopass:
-        # 2-pass: Siril auto-selects best reference (ignores setref)
-        log("Using 2-pass registration (Siril auto-selects reference)")
-        siril.register("stack", twopass=True)
-    else:
-        # 1-pass: Use our computed reference (longest L or longest overall)
-        siril.setref("stack", ref_idx + 1)
-        log(f"Using 1-pass registration with reference image {ref_idx + 1}")
-        siril.register("stack", twopass=False)
-
-    siril.seqapplyreg("stack", framing="min")
-
-    # Build result dict with registered paths
-    registered_dir = work_dir / "registered"
+    registered = register_composition_stacks(
+        siril,
+        [stack.path for _, stack in all_stacks],
+        work_dir,
+        ref_idx + 1,
+        config.cross_reg_twopass,
+    )
     result: dict[str, list[StackInfo]] = {}
-
-    for i, (channel, stack) in enumerate(all_stacks):
-        reg_path = registered_dir / f"r_stack_{i + 1:05d}.fit"
-        if not reg_path.exists():
-            log(f"WARNING: Registration failed for {stack.name}, using original")
-            reg_path = stack.path
-
-        if channel not in result:
-            result[channel] = []
-        result[channel].append(
-            StackInfo(
-                path=reg_path,
-                filter_name=stack.filter_name,
-                exposure=stack.exposure,
-            )
-        )
+    for (channel, stack), path in zip(all_stacks, registered, strict=True):
+        result.setdefault(channel, []).append(replace(stack, path=path))
 
     log("Cross-registration complete")
     return result
@@ -244,6 +211,7 @@ def compose_and_stretch(
     job_type: str,
     config: Config = DEFAULTS,
     logger: Optional[JobLogger] = None,
+    stack_paths: Collection[Path] | None = None,
 ) -> CompositionResult:
     """
     Discover stacks and compose based on job type.
@@ -257,12 +225,13 @@ def compose_and_stretch(
         job_type: "LRGB", "RGB", "SHO", "HOO", "LSHO", "LHOO"
         config: Configuration with processing parameters (includes palette)
         logger: Optional logger
+        stack_paths: Current preprocessing outputs; omit for composition-only discovery.
 
     Returns:
         CompositionResult with paths to all outputs
     """
     stacks_dir = Path(output_dir) / "stacks"
-    stacks = discover_stacks(stacks_dir)
+    stacks = discover_stacks(stacks_dir, selected=stack_paths)
 
     if not stacks:
         raise FileNotFoundError(f"No stacks found in {stacks_dir}")

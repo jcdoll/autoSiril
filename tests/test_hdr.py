@@ -85,3 +85,20 @@ def test_saved_hdr_preserves_relative_brightness(tmp_path: Path) -> None:
     data = fits.getdata(output)
     np.testing.assert_allclose(data, scene / 0.8, atol=1e-6)
     assert np.isfinite(data).all()
+
+
+def test_luminance_and_sulfur_hdr_outputs_remain_distinct(tmp_path: Path) -> None:
+    """LSHO must retain each channel even when both L and S require HDR blending."""
+    scene = np.linspace(0.001, 0.8, 256 * 256).reshape(256, 256)
+    stacks: dict[str, list[StackInfo]] = {}
+    for channel, pixels in [("L", scene), ("S", np.flipud(scene))]:
+        stacks[channel] = []
+        for exposure in (1, 3):
+            path = tmp_path / f"{channel}_{exposure}.fit"
+            fits.writeto(path, np.minimum(pixels * exposure, 1).astype(np.float32))
+            stacks[channel].append(StackInfo(path, channel, exposure))
+    result = HDRBlender().blend_all_channels(stacks, tmp_path / "hdr")
+    np.testing.assert_allclose(fits.getdata(result["L"]), scene / 0.8, atol=1e-6)
+    np.testing.assert_allclose(
+        fits.getdata(result["S"]), np.flipud(scene) / 0.8, atol=1e-6
+    )

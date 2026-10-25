@@ -60,7 +60,8 @@ def apply_stretch(
             is_neutral = low == 0.0 and mid == 0.5 and high == 1.0
             if not is_neutral:
                 log_fn(f"  MTF: low={low}, mid={mid}, high={high}")
-                siril.mtf(low, mid, high)
+                if not siril.mtf(low, mid, high):
+                    raise RuntimeError("Siril mtf failed during composition")
         return success
     elif method == StretchMethod.VERALUX:
         log_fn(
@@ -91,7 +92,8 @@ def apply_saturation(siril: "SirilInterface", config: Config) -> None:
     """
     if config.veralux_vectra_enabled:
         return  # Vectra handles saturation
-    siril.satu(config.saturation_amount, config.saturation_background_factor)
+    if not siril.satu(config.saturation_amount, config.saturation_background_factor):
+        raise RuntimeError("Siril satu failed during composition")
 
 
 def apply_enhancements(

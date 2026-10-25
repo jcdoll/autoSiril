@@ -6,6 +6,8 @@ Provides mixin class for image stretching operations.
 
 from typing import Optional
 
+from .siril_file_ops import quote_siril_arg
+
 
 class SirilStretchMixin:
     """Mixin for Siril stretching operations."""
@@ -34,7 +36,7 @@ class SirilStretchMixin:
         if method == "stars" and symmetric:
             cmd += " -sym"
         if save_psf:
-            cmd += f" -savepsf={save_psf.replace(chr(92), '/')}"
+            cmd += f" {quote_siril_arg('-savepsf=' + save_psf)}"
         return self.execute(cmd)
 
     def rl(
