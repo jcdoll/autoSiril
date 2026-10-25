@@ -95,7 +95,7 @@ class Config:
     # Autostretch parameters
     autostretch_linked: bool = True  # False for narrowband
     autostretch_shadowclip: float = -2.8  # Shadows clipping in sigma from peak
-    autostretch_targetbg: float = 0.10  # Target background brightness (match veralux)
+    autostretch_targetbg: float = 0.10  # Target background brightness
     # MTF fine-tuning (applied after autostretch)
     autostretch_mtf_low: float = 0.0  # Black point [0-1]
     autostretch_mtf_mid: float = (
@@ -105,26 +105,28 @@ class Config:
 
     # VeraLux HyperMetric Stretch parameters
     # Based on https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/
-    veralux_target_median: float = 0.10  # Target background median after stretch
+    veralux_target_median: float = 0.20  # Target background median after stretch
+    veralux_adaptive_anchor: bool = True  # Estimate black point from histogram shape
     veralux_b: float = 6.0  # Highlight protection / curve knee (higher preserves stars)
     veralux_log_d_min: float = 0.0  # Min log_d for binary search (D = 10^log_d)
     veralux_log_d_max: float = 7.0  # Max log_d for binary search
-    # Sensor profile for luminance weights (rec709, imx571, imx455, imx533, imx585, hoo, sho)
-    veralux_sensor_profile: str = "imx571"
+    # VeraLux RGB brightness weights for stretching and star recombination.
+    # Independent of spcc_sensor; this does not select a calibration response curve.
+    veralux_sensor_profile: str = "rec709"
     # Hybrid mode parameters (RTU defaults: grip=1.0, shadow=0.0 means no hybrid)
     veralux_color_grip: float = 1.0  # Vector vs scalar blend 0.4-1.0 (1.0=pure vector)
     veralux_shadow_convergence: float = 0.0  # Shadow damping 0-3 (0=off)
 
     # VeraLux Revela - Detail enhancement (ATWT wavelets)
     veralux_revela_enabled: bool = True
-    veralux_revela_texture: float = 50.0  # Fine detail boost 0-100
-    veralux_revela_structure: float = 50.0  # Medium structure boost 0-100
-    veralux_revela_shadow_auth: float = 25.0  # Shadow protection 0-100
+    veralux_revela_texture: float = 0.0  # Fine detail boost 0-100
+    veralux_revela_structure: float = 0.0  # Medium structure boost 0-100
+    veralux_revela_shadow_auth: float = 33.0  # Shadow protection 0-100
     veralux_revela_protect_stars: bool = True
 
     # VeraLux Vectra - Smart saturation (LCH color space)
     veralux_vectra_enabled: bool = False
-    veralux_vectra_saturation: float = 25.0  # Global saturation boost 0-100
+    veralux_vectra_saturation: float = 0.0  # Global saturation boost 0-100
     veralux_vectra_shadow_auth: float = 0.0  # Background protection 0-100
     veralux_vectra_protect_stars: bool = True
     veralux_vectra_red: Optional[float] = None  # Per-vector override
@@ -136,10 +138,10 @@ class Config:
 
     # VeraLux Silentium - Noise suppression (SWT wavelets)
     veralux_silentium_enabled: bool = True
-    veralux_silentium_intensity: float = 10.0  # Luminance noise reduction 0-100
+    veralux_silentium_intensity: float = 25.0  # Luminance noise reduction 0-100
     veralux_silentium_detail_guard: float = 50.0  # Detail protection 0-100
     veralux_silentium_chroma: float = 30.0  # Chroma noise reduction 0-100
-    veralux_silentium_shadow_smooth: float = 0.0  # Extra shadow smoothing 0-100
+    veralux_silentium_shadow_smooth: float = 10.0  # Extra shadow smoothing 0-100
 
     # Star removal (Siril StarNet integration)
     # When enabled, runs starnet on linear data to create starless + starmask
@@ -155,7 +157,7 @@ class Config:
 
     # VeraLux StarComposer - Star compositing (requires starnet_enabled)
     # Recomposes stars onto starless image with rational stretch control
-    veralux_starcomposer_log_d: float = 5.0  # Rational stretch intensity 1-21
+    veralux_starcomposer_log_d: float = 1.0  # Rational stretch intensity 1-21
     veralux_starcomposer_hardness: float = 50.0  # Profile hardness 1-100
     veralux_starcomposer_color_grip: float = 0.5  # Vector vs scalar 0-1
     veralux_starcomposer_shadow_conv: float = 0.0  # Shadow convergence 0-3
@@ -342,6 +344,8 @@ class Config:
     output_suffix: Optional[str] = None
 
     # Color calibration (SPCC)
+    # Actual sensor response and filters used for calibration, independent of
+    # veralux_sensor_profile's brightness weights used later in processing.
     # Use spcc_list command in Siril to see available sensors/filters
     # Note: SPCC only applies to broadband LRGB, not narrowband SHO
     spcc_enabled: bool = True

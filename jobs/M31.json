@@ -33,6 +33,7 @@
     "saturation_amount": 0.15,
     "dark_temp_override": -10,
     "stretch_method": "veralux",
+    "veralux_target_median": 0.15,
     "stretch_compare": true,
     "deconv_enabled": true,
     "spcc_enabled": true,

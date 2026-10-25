@@ -217,7 +217,9 @@ The VeraLux system provides advanced image processing capabilities beyond Siril'
 HyperMetric stretch with target background median. Uses binary search to find optimal D parameter for the hyperbolic transfer function. Provides more control over highlight preservation than autostretch.
 
 Key parameters:
-- `veralux_target_median`: Target background brightness (default: 0.10)
+- `veralux_target_median`: Target background brightness (default: 0.20)
+- `veralux_adaptive_anchor`: Estimate black point from the histogram (default: true, RGB and mono); false uses the statistical percentile
+- `veralux_sensor_profile`: VeraLux RGB brightness weights for stretching and star recombination (default: rec709). Independent of SPCC's sensor calibration; see [the distinction](veralux.md#veralux-brightness-weights-and-spcc-calibration).
 - `veralux_b`: Highlight protection / curve knee (default: 6.0)
 
 ### VeraLux Silentium (Noise Suppression)
@@ -227,6 +229,7 @@ Wavelet-based noise reduction using SWT (Stationary Wavelet Transform). Runs on 
 Key parameters:
 - `veralux_silentium_enabled`: Enable noise suppression (default: true)
 - `veralux_silentium_intensity`: Luminance noise reduction 0-100 (default: 25.0)
+- `veralux_silentium_shadow_smooth`: Extra shadow smoothing 0-100 (default: 10.0)
 - `veralux_silentium_chroma`: Chrominance noise reduction 0-100 (default: 30.0)
 
 ### VeraLux Revela (Detail Enhancement)
@@ -235,8 +238,8 @@ Wavelet-based detail enhancement using ATWT (A Trous Wavelet Transform). Boosts 
 
 Key parameters:
 - `veralux_revela_enabled`: Enable detail enhancement (default: true)
-- `veralux_revela_texture`: Fine detail boost 0-100 (default: 50.0)
-- `veralux_revela_structure`: Medium structure boost 0-100 (default: 50.0)
+- `veralux_revela_texture`: Fine detail boost 0-100 (default: 0.0)
+- `veralux_revela_structure`: Medium structure boost 0-100 (default: 0.0)
 
 ### VeraLux Vectra (Smart Saturation)
 
@@ -244,7 +247,7 @@ Saturation enhancement in LCH color space with per-vector control. Allows indepe
 
 Key parameters:
 - `veralux_vectra_enabled`: Enable smart saturation (default: false)
-- `veralux_vectra_saturation`: Global saturation boost 0-100 (default: 25.0)
+- `veralux_vectra_saturation`: Global saturation boost 0-100 (default: 0.0)
 - `veralux_vectra_red/yellow/green/cyan/blue/magenta`: Per-vector overrides
 
 ### VeraLux StarComposer (Star Recomposition)
@@ -252,7 +255,7 @@ Key parameters:
 Controlled star recomposition onto starless images. Uses the StarComposer 2.1.1 rational curve on linear star masks.
 
 Key parameters:
-- `veralux_starcomposer_log_d`: Star intensity 1-21 (default: 5.0)
+- `veralux_starcomposer_log_d`: Star intensity 1-21 (default: 1.0)
 - `veralux_starcomposer_hardness`: Profile hardness 1-100 (default: 50.0)
 - `veralux_starcomposer_blend_mode`: "screen" or "linear_add" (default: "screen")
 

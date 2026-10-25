@@ -20,7 +20,7 @@ import numpy as np
 from astropy.io import fits
 from scipy.ndimage import convolve
 
-from siril_job_runner.config import Config
+from siril_job_runner.config import DEFAULTS, Config
 from siril_job_runner.protocols import SirilInterface
 from siril_job_runner.veralux_colorspace import lab_to_rgb, rgb_to_lab
 from siril_job_runner.veralux_wavelet import atrous_decomposition, atrous_reconstruction
@@ -117,9 +117,9 @@ def _compute_star_mask_energy(
 
 def enhance_details(
     data: np.ndarray,
-    texture: float = 50.0,
-    structure: float = 50.0,
-    shadow_auth: float = 25.0,
+    texture: float = DEFAULTS.veralux_revela_texture,
+    structure: float = DEFAULTS.veralux_revela_structure,
+    shadow_auth: float = DEFAULTS.veralux_revela_shadow_auth,
     protect_stars: bool = True,
 ) -> tuple[np.ndarray, dict[str, float]]:
     """

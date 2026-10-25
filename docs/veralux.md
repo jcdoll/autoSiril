@@ -33,7 +33,7 @@ StarComposer uses the bounded rational curve from upstream StarComposer 2.1.1.
 Its input is a linear star mask, so no gamma conversion or fixed faint-star
 cutoff is applied. Both broadband and narrowband composition use this path;
 a mono narrowband mask produces white stars. The existing intensity control
-now uses the upstream 1-21 range, with a pipeline default of 5 and neutral
+uses the upstream 1-21 range, with the upstream default of 1 and neutral
 hardness 50. M42 uses intensity 11 because its RGB star mask is much fainter
 than the mono narrowband masks; the side-by-side comparison retains a visible
 star field without overwhelming the nebula. Old intensity overrides used a different curve and must be retuned.
@@ -95,9 +95,9 @@ and M45 RGB crops differ from the upstream no-star-list path by less than
 0.000002 per channel. A fixed display stretch shows the processing-order change
 without changing display parameters between images.
 
-For this pipeline, Silentium defaults to intensity 10 and shadow smoothing 0,
-instead of upstream's 25 and 10. Detail protection stays at 50 and chroma at 30;
-the algorithm is unchanged. Full-resolution paired renders of M31, M42, IC2118,
+An earlier comparison selected Silentium intensity 10 and shadow smoothing 0
+instead of upstream's 25 and 10. Detail protection stayed at 50 and chroma at 30;
+the algorithm was unchanged. Full-resolution paired renders of M31, M42, IC2118,
 LDN1082, SH2-184 and SH2-103 compared 25/10 with 10/0 using identical registered,
 HDR and color-calibrated input pixels where applicable. Overviews and native-pixel
 crops show less smoothing and more fine grain at 10/0. The preference is clearest
@@ -107,8 +107,9 @@ have darker subject regions, especially in autostretch.
 
 LDN1082 uses intensity 15 with shadow smoothing still at 0. A third full-image
 render reduced distracting fine grain around its dark dust lanes compared with
-10/0, without returning to the more smeared appearance of 25/10. The other five
-reviewed targets keep 10/0; no further overrides were justified by these images.
+10/0, without returning to the more smeared appearance of 25/10. This is now an
+explicit job override for both controls. The other five targets used 10/0 in that
+comparison; the defaults now return to upstream 25/10, with new comparisons below.
 
 The image-quality review also led to targeted M42 and IC2118 corrections and
 SPCC error handling, documented in [Image-quality corrections](image-quality.md).
@@ -147,9 +148,107 @@ The following implementation differences remain:
   instead return its initial 2.0 value. Retaining the candidate respects the
   existing minimum/maximum controls rather than silently leaving their range.
 
-These comparisons use the existing pipeline settings: target background 0.10,
-IMX571 weights for the ASI2600, statistical anchor, and ready-to-use mode. These are
-explicit processing choices, not a claim to reproduce the upstream GUI defaults
-(target 0.20 and adaptive anchor enabled). GUI controls and scientific mode are
-not ported. Changes to those settings need their own appearance comparison; they
-are held fixed here so algorithm changes can be assessed independently.
+Those algorithm comparisons used target background 0.10, IMX571 weights,
+statistical anchor and ready-to-use mode. They establish agreement at those
+settings, not equivalence to the upstream GUI defaults.
+
+## Upstream defaults
+
+The shared defaults follow the controls in the upstream versions linked above:
+
+| Control | Default |
+|---------|---------|
+| HyperMetric target background | 0.20 |
+| HyperMetric black-point estimate | Adaptive histogram |
+| VeraLux brightness weights (stretching and star recombination) | Rec.709 |
+| Revela texture / structure / shadow authority | 0 / 0 / 33 |
+| Vectra saturation | 0 for unspecified hue vectors |
+| Silentium intensity / shadow smoothing | 25 / 10 |
+| StarComposer intensity | 1 (upstream slider zero maps to 1) |
+
+`veralux_adaptive_anchor` selects the histogram estimate for both the sampled
+stretch calculation and final RGB or mono rendering. Setting it to false uses
+the statistical percentile. The existing histogram algorithm handles peaks near
+zero; independent upstream output tests cover faint RGB and mono inputs.
+
+The initial IC1396 target-only comparison used 0.10 versus 0.20 with all other
+settings fixed. The nebula was easier to see at 0.20, along with more background
+grain and existing star remnants. Its three unaffected JPEG controls were
+byte-identical. This target controls the stretch, not an exposure multiplier or
+a guaranteed final RGB median.
+
+HyperMetric's ready-to-use mode, curve knee 6, convergence 3.5, color grip 1,
+shadow convergence 0 and solver bounds 0-7 also match upstream. Revela star
+protection, Vectra shadow protection and hue shifts, Silentium detail protection
+and chroma, and StarComposer hardness, color grip, shadow convergence, adaptive
+anchor and screen blending match as well.
+
+The pipeline's choice of which modules to run is separate from their controls.
+The documented no-star-list Silentium path and correctness fixes above remain;
+optional GUI features and scientific mode are not added by this defaults change.
+
+## VeraLux brightness weights and SPCC calibration
+
+These settings have separate roles:
+
+| Setting | Purpose | Default |
+|---------|---------|---------|
+| `spcc_sensor` and `spcc_*_filter` | Sensor response and filter transmission used by SPCC for color calibration | IMX411/455/461/533/571 family and Optolong RGB filters |
+| `veralux_sensor_profile` | Fixed RGB weights used to estimate brightness during HyperMetric stretching and StarComposer star recombination | Rec.709 |
+
+SPCC uses the actual imaging equipment and reference-star spectra to calculate
+RGB color-balance corrections. Set its sensor and filters to match the equipment.
+VeraLux uses its weights later to guide stretching; changing them does not change
+the sensor or filters supplied to SPCC or perform another sensor calibration.
+
+The VeraLux option retains upstream's "sensor profile" terminology. Its IMX571
+preset is a supported alternative brightness calculation, not a required choice
+just because the camera uses that sensor. Rec.709 remains the shared rendering
+default. A different preset needs a visual or technical justification; the
+comparisons below changed several controls together and do not establish that
+Rec.709 alone improves these images. Mono channel stretching does not use RGB
+weights. SPCC calibration alone also does not establish that the resulting RGB
+pixels exactly represent the sRGB/Rec.709 color space.
+
+## Target comparisons
+
+Full-resolution comparisons cover IC1396 (SHO emission nebula), M31 (bright
+galaxy), M42 (HDR broadband nebula), and M33 (fainter galaxy). They use retained
+filter stacks and the production composition pipeline in separate directories.
+Broadband trials reuse the existing SPCC result only after checking that the
+newly composed, uncalibrated RGB pixels exactly match its original input. This
+keeps color calibration fixed between comparisons.
+
+IC1396 also has an adaptive-only trial at target 0.20. Its change is subtle;
+the three unaffected JPEG variants are identical. Full upstream settings reduce
+colored grain but soften fine texture. Major dust-lane boundaries remain visible.
+The existing gray background and circular star-removal remnants remain; adaptive
+estimation does not remove them. IC1396 keeps the upstream defaults.
+
+For M31 and M42, target 0.20 exposes more outer material but raises the background
+and weakens visible contrast around the bright centers. Controlled target-only
+trials support 0.15 for both jobs: their dust structure is clearer than at 0.20,
+while more surrounding material remains visible than in the old 0.10 renders.
+The centers remain smooth and bright. This is a tonal preference, not evidence
+of recovered detail or a uniquely optimal setting.
+
+M33 keeps target 0.10 because 0.20 makes its existing background color unevenness
+and grain dominate the faint galaxy. The 0.10 trial uses upstream knee 6 and
+retains the cleaner presentation, so the old knee-4 override is removed. The
+lower target makes the unevenness less prominent; it does not correct it.
+
+M42 retains StarComposer intensity 11. On identical new starless and star-mask
+pixels, intensity 1 leaves almost no small field stars visible; 11 restores a
+modest star field. Repeating intensity 1 from those checkpoints exactly matches
+the full pipeline's FITS pixels for both stretch methods. This supports keeping
+the existing exception, not changing the global default or claiming 11 is optimal.
+
+Shared denoising and enhancement settings also affect autostretch exports.
+IC1396 becomes more vivid. Review found a broader washed-out center in M33's
+autostretch output with its old white point of 0.78. A controlled comparison
+from identical linear checkpoints supports removing that override and using
+the default 1.0: visible central structure returns. The repeated 0.78 control
+exactly matches the full pipeline's FITS pixels in all three autostretch variants.
+The comparison includes both methods rather than treating autostretch as
+unchanged. Source stacks and prior working images are preserved, and the trial
+images await user review.
