@@ -222,30 +222,30 @@ class TestComposeStars:
         np.testing.assert_array_almost_equal(starless, result, decimal=3)
 
     def test_color_grip_affects_output(self):
-        """Different color grip values should produce different results."""
+        """Color grip changes color when stars receive a nonneutral stretch."""
         starless = np.ones((3, 32, 32)) * 0.2
         starmask = np.ones((3, 32, 32))
         starmask[0] = 0.3  # R
         starmask[1] = 0.2  # G
         starmask[2] = 0.1  # B
 
-        result_scalar, _ = compose_stars(starless, starmask, color_grip=0.0)
-        result_vector, _ = compose_stars(starless, starmask, color_grip=1.0)
+        result_scalar, _ = compose_stars(starless, starmask, log_d=5, color_grip=0.0)
+        result_vector, _ = compose_stars(starless, starmask, log_d=5, color_grip=1.0)
 
         # Results should be different
         assert not np.allclose(result_scalar, result_vector)
 
     def test_shadow_conv_affects_output(self):
-        """Shadow convergence should affect dark regions."""
+        """Shadow convergence changes a nonneutral star stretch."""
         starless = np.ones((3, 32, 32)) * 0.1  # Dark image
         starmask = np.ones((3, 32, 32)) * 0.1
         starmask[0] = 0.2  # Colored stars
 
         result_no_shadow, _ = compose_stars(
-            starless, starmask, color_grip=1.0, shadow_conv=0.0
+            starless, starmask, log_d=5, color_grip=1.0, shadow_conv=0.0
         )
         result_with_shadow, _ = compose_stars(
-            starless, starmask, color_grip=1.0, shadow_conv=2.0
+            starless, starmask, log_d=5, color_grip=1.0, shadow_conv=2.0
         )
 
         # Results should be different
@@ -259,7 +259,7 @@ def test_faint_linear_star_survives_with_bright_outliers() -> None:
     stars[:, 28:33, 28:33] = 0.0005
     stars[:, 0, 0] = 124.0
     stars[:, -1, -1] = -1.0
-    result, _ = compose_stars(base, stars)
+    result, _ = compose_stars(base, stars, log_d=5)
     assert result[:, 30, 30].min() > 0.084
     np.testing.assert_allclose(result[:, 48, 48], 0.08)
     assert result.min() >= 0.08 - 1e-12

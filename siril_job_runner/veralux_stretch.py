@@ -27,8 +27,6 @@ from .veralux_core import normalized_image
 
 # Reference defaults from VeraLux
 DEFAULT_CONVERGENCE_POWER = 3.5
-DEFAULT_PROTECT_B = 6.0
-DEFAULT_TARGET_BG = 0.20
 RTU_PEDESTAL = 0.001
 RTU_SOFT_CEIL_PERCENTILE = 99.0
 
@@ -217,7 +215,8 @@ def _solve_auto_stretch(
     pixel_count = data[0].size if is_rgb else data.size
     step = max(1, pixel_count // 100000)
     sample = data.reshape(3, 1, -1)[:, :, ::step] if is_rgb else data.ravel()[::step]
-    anchored = np.maximum(sample - _calculate_anchor_percentile(sample), 0.0)
+    anchor = _calculate_anchor(sample, weights, config.veralux_adaptive_anchor)
+    anchored = np.maximum(sample - anchor, 0.0)
     luminance = (
         sum(weight * channel for weight, channel in zip(weights, anchored, strict=True))
         if is_rgb
@@ -306,7 +305,7 @@ def _calculate_anchor_morphological(
     7. Fallback to 0.5 percentile of sample if no candidate
 
     Args:
-        data: RGB data, shape (3, H, W)
+        data: RGB or mono image, or sampled pixels
         weights: RGB luminance weights
         peak_threshold: Fraction of peak to use as threshold (default 6%)
 
@@ -372,17 +371,17 @@ def _calculate_anchor(
     data, weights: tuple[float, float, float], use_morphological: bool = True
 ):
     """
-    Calculate anchor (black point) using best available method.
+    Calculate anchor (black point) using the selected method.
 
     Args:
         data: Image data
         weights: RGB luminance weights
-        use_morphological: If True, try morphological method first
+        use_morphological: Use the adaptive histogram instead of the percentile
 
     Returns:
         Anchor value (black point)
     """
-    if use_morphological and data.ndim == 3 and data.shape[0] == 3:
+    if use_morphological:
         return _calculate_anchor_morphological(data, weights)
     return _calculate_anchor_percentile(data)
 
@@ -577,7 +576,7 @@ def apply_stretch(
 
     For RGB images:
     1. Normalize input based on dtype
-    2. Calculate anchor (black point) using the statistical percentile method
+    2. Calculate anchor (black point) using the configured histogram or percentile
     3. Subtract anchor from data
     4. Extract luminance from anchored data using sensor weights
     5. Select stretch strength using the sampled background check
@@ -608,29 +607,24 @@ def apply_stretch(
     # Check if RGB (3, H, W) or mono (H, W)
     is_rgb = data.ndim == 3 and data.shape[0] == 3
 
-    # Get parameters from config or use reference defaults
-    protect_b = getattr(config, "veralux_b", DEFAULT_PROTECT_B)
-    target_bg = getattr(config, "veralux_target_median", DEFAULT_TARGET_BG)
-    convergence_power = getattr(
-        config, "veralux_convergence_power", DEFAULT_CONVERGENCE_POWER
-    )
-    color_grip = getattr(config, "veralux_color_grip", 1.0)
-    shadow_convergence = getattr(config, "veralux_shadow_convergence", 0.0)
+    protect_b = config.veralux_b
+    target_bg = config.veralux_target_median
+    convergence_power = DEFAULT_CONVERGENCE_POWER
+    color_grip = config.veralux_color_grip
+    shadow_convergence = config.veralux_shadow_convergence
 
     # Get sensor profile weights
-    sensor_profile = getattr(config, "veralux_sensor_profile", "rec709")
+    sensor_profile = config.veralux_sensor_profile
     weights = get_sensor_weights(sensor_profile)
     r_weight, g_weight, b_weight = weights
     log(
         f"Sensor profile: {sensor_profile} (R={r_weight:.4f}, G={g_weight:.4f}, B={b_weight:.4f})"
     )
+    anchor = _calculate_anchor(data, weights, config.veralux_adaptive_anchor)
+    log(f"Anchor (black point): {anchor:.6f}")
 
     if is_rgb:
         log("RGB image detected - using vector preservation")
-
-        # Step 1: Use the pipeline's percentile black point (upstream GUI uses adaptive).
-        anchor = _calculate_anchor(data, weights, use_morphological=False)
-        log(f"Anchor (black point): {anchor:.6f}")
 
         # Step 2: Subtract anchor from all channels
         img_anchored = np.maximum(data - anchor, 0.0)
@@ -654,8 +648,6 @@ def apply_stretch(
         median_in = float(np.median(luminance))
     else:
         log("Mono image detected - direct stretch")
-        anchor = _calculate_anchor_percentile(data)
-        log(f"Anchor (black point): {anchor:.6f}")
         data_anchored = np.maximum(data - anchor, 0.0)
         median_in = float(np.median(data_anchored))
         luminance = data_anchored

@@ -20,7 +20,7 @@ import numpy as np
 from astropy.io import fits
 from scipy.ndimage import convolve
 
-from siril_job_runner.config import Config
+from siril_job_runner.config import DEFAULTS, Config
 from siril_job_runner.protocols import SirilInterface
 from siril_job_runner.veralux_colorspace import (
     lab_to_lch,
@@ -219,7 +219,7 @@ def _compute_global_mask(
 
 def apply_saturation(
     data: np.ndarray,
-    saturation: float = 25.0,
+    saturation: float = DEFAULTS.veralux_vectra_saturation,
     shadow_auth: float = 0.0,
     protect_stars: bool = True,
     per_vector_sat: dict[str, float | None] | None = None,

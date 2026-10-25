@@ -77,7 +77,12 @@ def test_automatic_stretch_matches_upstream_reference(
     data = np.stack([signal * 1.3, signal, signal * 0.6]) if rgb else signal
     path = tmp_path / "reference.fit"
     fits.writeto(path, data.astype(np.float32))
-    success, _ = apply_stretch(MagicMock(), path, Config(veralux_target_median=0.10))
+    config = Config(
+        veralux_target_median=0.10,
+        veralux_adaptive_anchor=False,
+        veralux_sensor_profile="imx571",
+    )
+    success, _ = apply_stretch(MagicMock(), path, config)
     assert success
     result = fits.getdata(path.with_stem("reference_stretched"), memmap=False) / 65535
 
@@ -114,6 +119,50 @@ def test_image_statistics_preserve_units(tmp_path: Path, storage: str) -> None:
     stats = SirilWrapper(MagicMock()).get_image_stats(path)
     assert stats["median"] == pytest.approx(0.2, abs=1 / 65535)
     assert stats["max"] == 1.0
+
+
+@pytest.mark.parametrize(
+    "rgb, expected_log_d, expected",
+    [
+        (False, 3.829833984375, [0.085123979, 1.0, 0.182062551]),
+        (
+            True,
+            3.81787109375,
+            [
+                [0.310479969, 1.0, 0.384774566],
+                [0.039544575, 0.890989065, 0.128958598],
+                [0.0, 0.591479778, 0.0],
+            ],
+        ),
+    ],
+)
+def test_adaptive_stretch_matches_upstream_on_faint_signal(
+    tmp_path: Path,
+    rgb: bool,
+    expected_log_d: float,
+    expected: list[float] | list[list[float]],
+) -> None:
+    """The solver and final image must both use the low-signal histogram anchor."""
+    from siril_job_runner.veralux_stretch import apply_stretch
+
+    y, x = np.mgrid[-1:1:64j, -1:1:64j]
+    signal = 0.00065 + 0.003 * np.exp(-(x * x + y * y) / 0.12) + 0.00008 * (x + 1)
+    data = np.stack([signal * 1.3, signal, signal * 0.6]) if rgb else signal
+    path = tmp_path / "faint.fit"
+    fits.writeto(path, data.astype(np.float32))
+    success, log_d = apply_stretch(MagicMock(), path, Config())
+    assert success
+    # Independently executed HyperMetric 1.5.2 AutoSolverThread.run and
+    # process_veralux_v6: adaptive anchor, target 0.20, Rec.709, ready_to_use.
+    # https://gitlab.com/free-astro/siril-scripts/-/raw/main/VeraLux/VeraLux_HyperMetric_Stretch.py
+    # SHA256: 5b9704c0dac81dac71fb0be4b5c0efae7276cf68a7285f777f341b62fb90c571
+    # This faint histogram peaks below bin 100 and selects a histogram anchor,
+    # exercising the adaptive path rather than only its percentile fallback.
+    assert log_d == pytest.approx(expected_log_d)
+    result = fits.getdata(path.with_stem("faint_stretched"), memmap=False) / 65535
+    np.testing.assert_allclose(
+        result[..., [10, 32, 53], [17, 32, 48]], expected, atol=2 / 65535, rtol=0
+    )
 
 
 @pytest.mark.parametrize("operation", ["stretch", "statistics"])

@@ -255,6 +255,7 @@ def test_saturation_matches_upstream_with_stars_and_hue_overrides() -> None:
     data[:, 12, 17] = [0.8, 0.4, 0.1]
     result, _ = apply_saturation(
         data,
+        saturation=25,
         per_vector_sat={"blue": 60, "magenta": -20},
         per_vector_hue={"blue": 15, "magenta": -10},
     )
