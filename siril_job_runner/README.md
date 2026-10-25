@@ -105,7 +105,7 @@ The system expects this directory layout:
 
 Key conventions:
 - Dates use underscores: `2024_01_15`
-- Light folders: `{filter}{exposure}` (e.g., `L180`, `R60`)
+- Light folders: `{filter}{exposure}` (e.g., `L180`, `R60`). Light exposures must be positive whole seconds; fractional exposures are rejected before processing. Every configured directory must contain readable `.fit` light frames.
 - Bias: No temperature (readout noise is temperature-independent)
 - Darks: `{date}_{temp}/{exposure}/` (thermal noise is temperature-dependent)
 - Masters are cached in `calibration/masters/`

@@ -8,14 +8,14 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from .fits_utils import check_clipping, scan_multiple_directories
+from .fits_utils import check_clipping, scan_directory
 from .frame_analysis import (
     build_date_summary_table,
     build_requirements_table,
     format_date_summary_table,
     get_unique_filters,
 )
-from .models import FrameInfo, ValidationResult
+from .models import FrameInfo, ValidationResult, exposure_seconds
 
 if TYPE_CHECKING:
     from .calibration import CalibrationManager
@@ -49,22 +49,37 @@ def validate_job(
     """
     logger.step(f"Validating job: {job_name}")
 
-    # Scan all light frames
+    # Every requested directory must contribute frames before processing starts.
     all_frames: list[FrameInfo] = []
+    input_errors: list[str] = []
     for filter_name, dirs in lights.items():
-        full_dirs = [base_path / d for d in dirs]
-        frames = scan_multiple_directories(full_dirs)
+        frames: list[FrameInfo] = []
+        if not dirs:
+            input_errors.append(f"No light directories configured for {filter_name}")
+        for directory in dirs:
+            source = base_path / directory
+            found = scan_directory(source)
+            if not found:
+                input_errors.append(
+                    f"No readable light frames for {filter_name} in {source}"
+                )
+            for frame in found:
+                try:
+                    exposure_seconds(frame.exposure)
+                except ValueError as error:
+                    input_errors.append(f"{frame.path}: {error}")
+            frames.extend(found)
         all_frames.extend(frames)
         logger.substep(f"{filter_name}: {len(frames)} frames from {len(dirs)} dirs")
 
-    if not all_frames:
+    if input_errors or not all_frames:
         return ValidationResult(
             valid=False,
-            frames=[],
+            frames=all_frames,
             requirements=[],
             missing_calibration=[],
             buildable_calibration=[],
-            message="No light frames found",
+            message="\n".join(input_errors) or "No light frames found",
         )
 
     if config.dark_temp_override is not None:

@@ -5,9 +5,20 @@ All dataclasses are defined here to prevent circular imports
 and centralize data structure definitions.
 """
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+
+def exposure_seconds(exposure: float) -> int:
+    """Return a supported exposure without silently truncating its identity."""
+    if not math.isfinite(exposure) or exposure <= 0 or not float(exposure).is_integer():
+        raise ValueError(
+            f"Exposure must be a positive whole number of seconds; got {exposure}"
+        )
+    return int(exposure)
+
 
 # Stack-related models
 

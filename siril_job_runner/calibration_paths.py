@@ -9,7 +9,7 @@ from typing import Optional
 
 from .config import Config
 from .fits_utils import temperatures_match
-from .models import CalibrationDates, CalibrationStatus
+from .models import CalibrationDates, CalibrationStatus, exposure_seconds
 
 
 class CalibrationPathsMixin:
@@ -33,7 +33,7 @@ class CalibrationPathsMixin:
     def get_dark_master_path(self, exposure: float, temp: float) -> Path:
         """Get expected path for dark master."""
         cfg = self.config
-        exp_str = f"{int(exposure)}{cfg.exposure_suffix}"
+        exp_str = f"{exposure_seconds(exposure)}{cfg.exposure_suffix}"
         temp_str = f"{int(round(temp))}{cfg.temp_suffix}"
         filename = f"{cfg.dark_prefix}{exp_str}_{temp_str}_{self.dates.darks}{cfg.fit_extension}"
         return self.masters_dir / cfg.dark_subdir / filename
@@ -53,7 +53,7 @@ class CalibrationPathsMixin:
     def get_dark_raw_path(self, exposure: float, temp: float) -> Path:
         """Get expected path for raw dark frames."""
         cfg = self.config
-        exp_str = f"{int(exposure)}"
+        exp_str = f"{exposure_seconds(exposure)}"
         temp_str = f"{int(round(temp))}{cfg.temp_suffix}"
         # Structure: darks/{date}_{temp}/{exposure}/
         return (
@@ -134,10 +134,15 @@ class CalibrationPathsMixin:
         # Try tolerance matching for raw frames
         matching_raw = self._find_matching_dark_raw(exposure, temp)
         if matching_raw:
+            source_temperature = float(
+                matching_raw.parent.name.rsplit("_", 1)[1].removesuffix(
+                    self.config.temp_suffix
+                )
+            )
             return CalibrationStatus(
                 exists=False,
                 can_build=True,
-                master_path=master_path,
+                master_path=self.get_dark_master_path(exposure, source_temperature),
                 raw_path=matching_raw,
                 message=f"Can build from tolerance-matched raw: {matching_raw}",
             )
@@ -157,14 +162,14 @@ class CalibrationPathsMixin:
         if not darks_raw_dir.exists():
             return None
 
-        exp_str = f"{int(exposure)}"
+        exp_str = f"{exposure_seconds(exposure)}"
         for temp_dir in darks_raw_dir.iterdir():
             if not temp_dir.is_dir():
                 continue
             # Parse temp from dir name like "2025_01_23_-10C"
-            parts = temp_dir.name.split("_")
-            if len(parts) >= 2:
-                temp_part = parts[-1]  # Last part should be temp like "-10C"
+            parts = temp_dir.name.rsplit("_", 1)
+            if len(parts) == 2 and parts[0] == self.dates.darks:
+                temp_part = parts[1]  # Last part should be temp like "-10C"
                 try:
                     dir_temp = float(temp_part.replace(cfg.temp_suffix, ""))
                     if temperatures_match(temp, dir_temp, cfg.temp_tolerance):
@@ -221,7 +226,7 @@ class CalibrationPathsMixin:
         if not darks_dir.exists():
             return None
 
-        exp_str = f"{int(exposure)}{cfg.exposure_suffix}"
+        exp_str = f"{exposure_seconds(exposure)}{cfg.exposure_suffix}"
         glob_pattern = (
             f"{cfg.dark_prefix}{exp_str}_*_{self.dates.darks}{cfg.fit_extension}"
         )
