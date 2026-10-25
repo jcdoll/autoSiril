@@ -156,19 +156,28 @@ See `examples/example_lrgb_hdr_job.json` for a complete HDR example.
 
 ### Settings File
 
-Create a `settings.json` file (copy from `settings.template.json`) to set defaults:
+Shared processing defaults are checked in as `Config` in [config.py](config.py).
+Change shared defaults there and put per-image overrides in the tracked job's
+`options` field.
+
+Copy [settings.template.json](../settings.template.json) to `settings.json` in
+the repository root and set your data location. `settings.json` is ignored by Git
+so machine-specific paths stay local. The template is only a setup example; it
+is not loaded at runtime.
 
 ```json
 {
-  "base_path": "/path/to/your/astro/data",
-  "options": {
-    "spcc_enabled": true,
-    "spcc_sensor": "Sony IMX411/455/461/533/571"
-  }
+  "base_path": "/path/to/your/astro/data"
 }
 ```
 
-Settings are merged with job options (job options take precedence).
+Optional `options` in `settings.json` can hold intentional local overrides,
+such as equipment settings. Avoid copying unchanged defaults into this file:
+local values override later changes to the shared defaults. Existing local
+files are not changed when the template changes.
+
+Precedence, from lowest to highest: `Config` defaults, `settings.json` options,
+job options.
 
 ### Output Management
 

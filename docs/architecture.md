@@ -269,12 +269,19 @@ This applies to all output variants (baseline, starless, LRGB, RGB) uniformly. T
 
 ## Configuration System
 
-All configurable values are defined in `siril_job_runner/config.py` in a single `Config` dataclass. Users can override any value via:
+Shared processing defaults are checked in as the `Config` dataclass in
+`siril_job_runner/config.py`. Keep shared default changes there. Users can
+override values via:
 
-1. `settings.json` in the repository root (user defaults)
-2. `options` field in job JSON files (per-job overrides)
+1. `options` in ignored `settings.json` (intentional local overrides)
+2. `options` in tracked job JSON files (per-job overrides)
 
-Override precedence: `DEFAULTS <- settings.json <- job.json options`
+Override precedence: `DEFAULTS <- settings.json options <- job.json options`.
+
+The checked-in `settings.template.json` is a setup example containing only a
+placeholder data path. It is not loaded at runtime. The actual `base_path`
+belongs in local settings or the CLI's `--base-path` argument. See the
+[settings setup](../siril_job_runner/README.md#settings-file).
 
 ### Key Configuration Options
 
