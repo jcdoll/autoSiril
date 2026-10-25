@@ -39,13 +39,13 @@
     },
     "lights": {
       "type": "object",
-      "description": "Light frame directories per filter",
+      "description": "Light frame directories or individual FITS files per filter",
       "minProperties": 1,
       "additionalProperties": {
         "oneOf": [
           {
             "type": "string",
-            "description": "Single directory path"
+            "description": "Single directory or FITS file path"
           },
           {
             "type": "array",
@@ -53,7 +53,7 @@
               "type": "string"
             },
             "minItems": 1,
-            "description": "Multiple directory paths (multi-night or HDR)"
+            "description": "Directory or FITS file paths (multi-night, HDR, or selected exposures)"
           }
         ]
       }

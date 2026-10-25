@@ -110,12 +110,9 @@ render reduced distracting fine grain around its dark dust lanes compared with
 10/0, without returning to the more smeared appearance of 25/10. The other five
 reviewed targets keep 10/0; no further overrides were justified by these images.
 
-These comparisons do not approve overall image quality. Both settings retain
-M42's small-star rings and clipped autostretch core, and IC2118's large colored
-halos, uneven background and thin vertical line. All four broadband targets
-report imprecise SPCC calibration; their paired calibrated pixels still match.
-Address those limitations separately rather than masking them with stronger
-denoising. M45 keeps its existing denoising-disabled setting and was not rerendered.
+The image-quality review also led to targeted M42 and IC2118 corrections and
+SPCC error handling, documented in [Image-quality corrections](image-quality.md).
+M45 keeps its existing denoising-disabled setting and was not rerendered.
 
 StarComposer follows [StarComposer 2.1.1](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_StarComposer.py)'s
 mirror boundary for the small input blur, full-RGB anchor sampling stride, and

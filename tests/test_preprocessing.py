@@ -121,3 +121,65 @@ def test_different_calibration_choices_fail_before_processing(tmp_path: Path) ->
     assert not output.exists()
     for frame in frames:
         np.testing.assert_array_equal(fits.getdata(frame.path), 100.0)
+
+
+def test_stack_cache_tracks_selection_and_failed_rebuilds(tmp_path: Path) -> None:
+    """Removed or older added frames must change the stack, including after failure."""
+    frames = []
+    for index, value in enumerate((10.0, 20.0, 30.0)):
+        path = tmp_path / f"input{index}.fit"
+        fits.writeto(path, np.full((4, 4), value))
+        frames.append(FrameInfo(path, 10, -10, "L"))
+    masters = tuple(tmp_path / f"{kind}.fit" for kind in ("bias", "dark", "flat"))
+    for master in masters:
+        fits.writeto(master, np.ones((4, 4)))
+    siril = MagicMock()
+    cwd = tmp_path
+    fail = False
+
+    def cd(path: str) -> bool:
+        """Track the external application's working directory."""
+        nonlocal cwd
+        cwd = Path(path)
+        return True
+
+    def stack(*args: object, **kwargs: object) -> bool:
+        """Emulate stacking at the expensive Siril boundary, or a partial write."""
+        output = kwargs["out"]
+        assert isinstance(output, str)
+        values = [fits.getdata(path) for path in cwd.glob("light*.fit")]
+        data = np.full((4, 4), 999.0) if fail else np.mean(values, axis=0)
+        fits.writeto(output, data, overwrite=True)
+        return not fail
+
+    def calibration(
+        filter_name: str, exposure: float, temperature: float
+    ) -> tuple[Path, Path, Path]:
+        """Return existing masters shared by this group."""
+        return masters[0], masters[1], masters[2]
+
+    def process(selected: list[FrameInfo]) -> Path:
+        """Exercise the public preprocessing entry point."""
+        return preprocess_with_exposure_groups(
+            siril,
+            selected,
+            tmp_path / "processed",
+            calibration,
+            Config(pre_stack_subsky_method=SubskyMethod.NONE),
+        )["stack_L_10s"]
+
+    siril.cd.side_effect = cd
+    siril.stack.side_effect = stack
+    result = process(frames[:2])
+    np.testing.assert_array_equal(fits.getdata(result), 15.0)
+    timestamp = result.stat().st_mtime_ns
+    assert process(frames[:2]).stat().st_mtime_ns == timestamp
+    np.testing.assert_array_equal(fits.getdata(process(frames[:1])), 10.0)
+    np.testing.assert_array_equal(fits.getdata(process([frames[0], frames[2]])), 20.0)
+    fail = True
+    with pytest.raises(RuntimeError, match="Failed to stack"):
+        process(frames)
+    fail = False
+    np.testing.assert_array_equal(fits.getdata(process([frames[0], frames[2]])), 20.0)
+    for frame, expected in zip(frames, (10.0, 20.0, 30.0), strict=True):
+        np.testing.assert_array_equal(fits.getdata(frame.path), expected)

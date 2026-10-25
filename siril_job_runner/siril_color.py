@@ -125,7 +125,7 @@ class SirilColorMixin:
             f'"-gfilter={green_filter}" '
             f'"-bfilter={blue_filter}" '
             f'"-whiteref={whiteref}" '
-            f"-bgtol={bgtol_upper},{bgtol_lower} "
+            f"-bgtol={bgtol_lower},{bgtol_upper} "
             f"-atmos -obsheight={obsheight}"
         )
         return self.execute(cmd)

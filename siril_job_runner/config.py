@@ -253,7 +253,7 @@ class Config:
     deconv_alpha: float = 3000.0  # Regularization strength (Siril default: 3000)
 
     # Color cast removal (SCNR - Subtractive Chromatic Noise Reduction)
-    # Applied after color calibration, before stretch
+    # Applied to stretched images before VeraLux enhancement
     # For green cast: use rmgreen directly
     # For magenta cast: use negative-rmgreen-negative technique
     color_removal_mode: ColorRemovalMode = ColorRemovalMode.NONE

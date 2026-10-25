@@ -36,7 +36,7 @@ class JobConfig:
     calibration_bias: str
     calibration_darks: str
     calibration_flats: str
-    lights: dict[str, list[str]]  # filter -> list of directories
+    lights: dict[str, list[str]]  # filter -> directories or individual FITS files
     output: str
     config: Config = field(default_factory=lambda: Config())
 
@@ -106,8 +106,8 @@ class JobConfig:
         """Get list of filter names."""
         return list(self.lights.keys())
 
-    def get_light_directories(self, filter_name: str) -> list[str]:
-        """Get light directories for a filter."""
+    def get_light_paths(self, filter_name: str) -> list[str]:
+        """Get configured light paths for a filter."""
         return self.lights.get(filter_name, [])
 
 
