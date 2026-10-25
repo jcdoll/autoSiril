@@ -219,7 +219,7 @@ HyperMetric stretch with target background median. Uses binary search to find op
 Key parameters:
 - `veralux_target_median`: Target background brightness (default: 0.20)
 - `veralux_adaptive_anchor`: Estimate black point from the histogram (default: true, RGB and mono); false uses the statistical percentile
-- `veralux_sensor_profile`: Luminance weights (default: rec709); override for a sensor or narrowband profile when justified
+- `veralux_sensor_profile`: VeraLux RGB brightness weights for stretching and star recombination (default: rec709). Independent of SPCC's sensor calibration; see [the distinction](veralux.md#veralux-brightness-weights-and-spcc-calibration).
 - `veralux_b`: Highlight protection / curve knee (default: 6.0)
 
 ### VeraLux Silentium (Noise Suppression)

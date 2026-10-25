@@ -110,7 +110,8 @@ class Config:
     veralux_b: float = 6.0  # Highlight protection / curve knee (higher preserves stars)
     veralux_log_d_min: float = 0.0  # Min log_d for binary search (D = 10^log_d)
     veralux_log_d_max: float = 7.0  # Max log_d for binary search
-    # Sensor profile for luminance weights (rec709, imx571, imx455, imx533, imx585, hoo, sho)
+    # VeraLux RGB brightness weights for stretching and star recombination.
+    # Independent of spcc_sensor; this does not select a calibration response curve.
     veralux_sensor_profile: str = "rec709"
     # Hybrid mode parameters (RTU defaults: grip=1.0, shadow=0.0 means no hybrid)
     veralux_color_grip: float = 1.0  # Vector vs scalar blend 0.4-1.0 (1.0=pure vector)
@@ -343,6 +344,8 @@ class Config:
     output_suffix: Optional[str] = None
 
     # Color calibration (SPCC)
+    # Actual sensor response and filters used for calibration, independent of
+    # veralux_sensor_profile's brightness weights used later in processing.
     # Use spcc_list command in Siril to see available sensors/filters
     # Note: SPCC only applies to broadband LRGB, not narrowband SHO
     spcc_enabled: bool = True

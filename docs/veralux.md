@@ -160,7 +160,7 @@ The shared defaults follow the controls in the upstream versions linked above:
 |---------|---------|
 | HyperMetric target background | 0.20 |
 | HyperMetric black-point estimate | Adaptive histogram |
-| Sensor weights | Rec.709 |
+| VeraLux brightness weights (stretching and star recombination) | Rec.709 |
 | Revela texture / structure / shadow authority | 0 / 0 / 33 |
 | Vectra saturation | 0 for unspecified hue vectors |
 | Silentium intensity / shadow smoothing | 25 / 10 |
@@ -186,6 +186,29 @@ anchor and screen blending match as well.
 The pipeline's choice of which modules to run is separate from their controls.
 The documented no-star-list Silentium path and correctness fixes above remain;
 optional GUI features and scientific mode are not added by this defaults change.
+
+## VeraLux brightness weights and SPCC calibration
+
+These settings have separate roles:
+
+| Setting | Purpose | Default |
+|---------|---------|---------|
+| `spcc_sensor` and `spcc_*_filter` | Sensor response and filter transmission used by SPCC for color calibration | IMX411/455/461/533/571 family and Optolong RGB filters |
+| `veralux_sensor_profile` | Fixed RGB weights used to estimate brightness during HyperMetric stretching and StarComposer star recombination | Rec.709 |
+
+SPCC uses the actual imaging equipment and reference-star spectra to calculate
+RGB color-balance corrections. Set its sensor and filters to match the equipment.
+VeraLux uses its weights later to guide stretching; changing them does not change
+the sensor or filters supplied to SPCC or perform another sensor calibration.
+
+The VeraLux option retains upstream's "sensor profile" terminology. Its IMX571
+preset is a supported alternative brightness calculation, not a required choice
+just because the camera uses that sensor. Rec.709 remains the shared rendering
+default. A different preset needs a visual or technical justification; the
+comparisons below changed several controls together and do not establish that
+Rec.709 alone improves these images. Mono channel stretching does not use RGB
+weights. SPCC calibration alone also does not establish that the resulting RGB
+pixels exactly represent the sRGB/Rec.709 color space.
 
 ## Target comparisons
 

@@ -30,9 +30,10 @@ DEFAULT_CONVERGENCE_POWER = 3.5
 RTU_PEDESTAL = 0.001
 RTU_SOFT_CEIL_PERCENTILE = 99.0
 
-# Sensor profiles: (R_weight, G_weight, B_weight)
-# Based on hardware-specific Quantum Efficiency measurements
-# Reference: VeraLux Database v2.2 - Siril SPCC Derived
+# VeraLux brightness-weight presets: (R_weight, G_weight, B_weight).
+# Upstream labels the sensor presets as QE/SPCC-derived (Database v2.2).
+# These fixed weights guide stretching; SPCC uses separate sensor/filter curves
+# for color calibration. Selecting a preset here does not change that calibration.
 SENSOR_PROFILES: dict[str, tuple[float, float, float]] = {
     # Standard
     "rec709": (0.2126, 0.7152, 0.0722),  # ITU-R BT.709 (default)
@@ -63,10 +64,10 @@ SENSOR_PROFILES: dict[str, tuple[float, float, float]] = {
 
 def get_sensor_weights(profile: str) -> tuple[float, float, float]:
     """
-    Get RGB luminance weights for a sensor profile.
+    Get VeraLux RGB brightness weights, independent of SPCC calibration.
 
     Args:
-        profile: Sensor profile name (case-insensitive)
+        profile: VeraLux weight-preset name (case-insensitive)
 
     Returns:
         Tuple of (R_weight, G_weight, B_weight)
@@ -613,12 +614,13 @@ def apply_stretch(
     color_grip = config.veralux_color_grip
     shadow_convergence = config.veralux_shadow_convergence
 
-    # Get sensor profile weights
+    # Select VeraLux brightness weights; SPCC calibration is already separate.
     sensor_profile = config.veralux_sensor_profile
     weights = get_sensor_weights(sensor_profile)
     r_weight, g_weight, b_weight = weights
     log(
-        f"Sensor profile: {sensor_profile} (R={r_weight:.4f}, G={g_weight:.4f}, B={b_weight:.4f})"
+        f"VeraLux brightness weights: {sensor_profile} "
+        f"(R={r_weight:.4f}, G={g_weight:.4f}, B={b_weight:.4f})"
     )
     anchor = _calculate_anchor(data, weights, config.veralux_adaptive_anchor)
     log(f"Anchor (black point): {anchor:.6f}")

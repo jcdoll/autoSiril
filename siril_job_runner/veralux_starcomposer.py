@@ -27,7 +27,7 @@ from siril_job_runner.veralux_stretch import get_sensor_weights
 
 from .veralux_core import normalized_image
 
-# Default luminance weights (rec709)
+# Default VeraLux brightness weights (Rec.709), independent of SPCC calibration.
 DEFAULT_WEIGHTS = (0.2126, 0.7152, 0.0722)
 
 
@@ -273,7 +273,7 @@ def compose_stars(
         color_grip: Color vs grayscale, 0=scalar (crisp), 1=vector (color)
         shadow_conv: Shadow convergence damping, 0-3
         blend_mode: Screen or linear add
-        weights: RGB luminance weights tuple (sensor profile)
+        weights: VeraLux RGB brightness weights, independent of SPCC calibration
 
     Returns:
         Tuple of (composed_image, stats_dict)
@@ -386,7 +386,7 @@ def apply_starcomposer(
 
     blend_mode = config.veralux_starcomposer_blend_mode
 
-    # Get sensor profile weights
+    # Use the same VeraLux brightness weights as the stretch, not SPCC response curves.
     weights = get_sensor_weights(config.veralux_sensor_profile)
 
     composed, stats = compose_stars(
