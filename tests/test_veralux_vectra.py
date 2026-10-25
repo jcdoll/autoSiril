@@ -4,7 +4,6 @@ import numpy as np
 
 from siril_job_runner.veralux_vectra import (
     HUE_NAMES,
-    HUE_SIGMA_RAD,
     _compute_chroma_stability,
     _compute_global_mask,
     _compute_hue_weights,
@@ -37,10 +36,6 @@ class TestHueWeights:
         weights = _compute_hue_weights(H)
         for w in weights:
             assert np.all(w >= 0)
-
-    def test_hue_sigma_is_30_degrees(self):
-        """Hue sigma should be exactly 30 degrees (pi/6 radians)."""
-        np.testing.assert_almost_equal(HUE_SIGMA_RAD, np.pi / 6.0)
 
 
 class TestSignalMask:
@@ -250,3 +245,42 @@ class TestApplySaturation:
         for name in HUE_NAMES:
             assert f"{name}_sat_boost" in stats
             assert f"{name}_hue_shift_deg" in stats
+
+
+def test_saturation_matches_upstream_with_stars_and_hue_overrides() -> None:
+    """Check color overlap, hue wrapping and star protection through public output."""
+    y, x = np.mgrid[:64, :64]
+    level = 0.03 + 0.2 * np.exp(-((x - 32) ** 2 + (y - 32) ** 2) / 150)
+    data = np.stack([level * 0.7, level * 0.5, level * 1.8]).astype(np.float32)
+    data[:, 12, 17] = [0.8, 0.4, 0.1]
+    result, _ = apply_saturation(
+        data,
+        per_vector_sat={"blue": 60, "magenta": -20},
+        per_vector_hue={"blue": 15, "magenta": -10},
+    )
+    # Independently executed Vectra 1.0.3 process_vectors; same controls, no gamma.
+    # SHA256 eca04c83e51815cfd69894c5526ecea8ec0a0f3345a6a77c63f787306cfed9a9
+    # The second sample is the protected star, the others cover blue/magenta hues.
+    expected = [
+        [
+            0.020069029182195663,
+            0.7999998331069946,
+            0.07590794563293457,
+            0.11850215494632721,
+        ],
+        [
+            0.015280052088201046,
+            0.4000001549720764,
+            0.08220026642084122,
+            0.1283252090215683,
+        ],
+        [
+            0.05397040396928787,
+            0.09999996423721313,
+            0.2608312666416168,
+            0.4071914255619049,
+        ],
+    ]
+    np.testing.assert_allclose(
+        result[:, [0, 12, 24, 32], [0, 17, 28, 32]], expected, atol=2e-6, rtol=0
+    )

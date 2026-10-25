@@ -15,9 +15,9 @@ _REF_Y = 100.0
 _REF_Z = 108.883
 
 
-def rgb_to_xyz(rgb: np.ndarray) -> np.ndarray:
+def rgb_to_xyz(rgb: np.ndarray, *, linear: bool = False) -> np.ndarray:
     """
-    Convert RGB to CIE XYZ color space.
+    Convert RGB to CIE XYZ; linear=True skips sRGB decoding.
 
     Args:
         rgb: Array of shape (3, H, W) with values in [0, 1]
@@ -26,10 +26,11 @@ def rgb_to_xyz(rgb: np.ndarray) -> np.ndarray:
         XYZ array of shape (3, H, W)
     """
     # sRGB to linear RGB
-    linear = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+    if not linear:
+        rgb = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
 
     # Linear RGB to XYZ (sRGB D65)
-    r, g, b = linear[0], linear[1], linear[2]
+    r, g, b = rgb[0], rgb[1], rgb[2]
     x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375
     y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750
     z = r * 0.0193339 + g * 0.1191920 + b * 0.9503041
@@ -37,9 +38,9 @@ def rgb_to_xyz(rgb: np.ndarray) -> np.ndarray:
     return np.stack([x * 100, y * 100, z * 100], axis=0)
 
 
-def xyz_to_rgb(xyz: np.ndarray) -> np.ndarray:
+def xyz_to_rgb(xyz: np.ndarray, *, linear: bool = False) -> np.ndarray:
     """
-    Convert CIE XYZ to RGB color space.
+    Convert CIE XYZ to RGB; linear=True skips sRGB encoding.
 
     Args:
         xyz: Array of shape (3, H, W)
@@ -55,17 +56,19 @@ def xyz_to_rgb(xyz: np.ndarray) -> np.ndarray:
     b = x * 0.0556434 + y * -0.2040259 + z * 1.0572252
 
     # Linear RGB to sRGB
-    linear = np.stack([r, g, b], axis=0)
+    rgb = np.stack([r, g, b], axis=0)
+    if linear:
+        return np.clip(rgb, 0, 1)
     srgb = np.where(
-        linear <= 0.0031308, linear * 12.92, 1.055 * np.power(linear, 1 / 2.4) - 0.055
+        rgb <= 0.0031308, rgb * 12.92, 1.055 * np.maximum(rgb, 0) ** (1 / 2.4) - 0.055
     )
 
     return np.clip(srgb, 0, 1)
 
 
-def rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
+def rgb_to_lab(rgb: np.ndarray, *, linear: bool = False) -> np.ndarray:
     """
-    Convert RGB to CIE LAB color space.
+    Convert RGB to CIE LAB; linear=True uses RGB samples without sRGB decoding.
 
     Args:
         rgb: Array of shape (3, H, W) with values in [0, 1]
@@ -73,7 +76,7 @@ def rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
     Returns:
         LAB array of shape (3, H, W) where L is [0, 100], a/b are ~[-128, 127]
     """
-    xyz = rgb_to_xyz(rgb)
+    xyz = rgb_to_xyz(rgb, linear=linear)
     x, y, z = xyz[0] / _REF_X, xyz[1] / _REF_Y, xyz[2] / _REF_Z
 
     epsilon = 0.008856
@@ -90,9 +93,9 @@ def rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
     return np.stack([L, a, b], axis=0)
 
 
-def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
+def lab_to_rgb(lab: np.ndarray, *, linear: bool = False) -> np.ndarray:
     """
-    Convert CIE LAB to RGB color space.
+    Convert CIE LAB to RGB; linear=True skips sRGB encoding.
 
     Args:
         lab: Array of shape (3, H, W) where L is [0, 100], a/b are ~[-128, 127]
@@ -117,7 +120,7 @@ def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
     z = np.where(z3 > epsilon, z3, (116 * fz - 16) / kappa)
 
     xyz = np.stack([x * _REF_X, y * _REF_Y, z * _REF_Z], axis=0)
-    return xyz_to_rgb(xyz)
+    return xyz_to_rgb(xyz, linear=linear)
 
 
 def lab_to_lch(lab: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

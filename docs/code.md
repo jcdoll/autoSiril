@@ -81,6 +81,10 @@ VeraLux modules are ported from standalone reference scripts by Riccardo Paterni
 
 Shared math utilities (color space conversions in `veralux_colorspace.py`, wavelet transforms in `veralux_wavelet.py`) are not part of any single script's algorithm and are shared normally.
 
+Silentium runs once on the generated linear RGB and luminance images, or each
+narrowband channel, before StarNet and either stretch method. It preserves
+floating-point samples so faint signal survives the later stretch.
+
 ## Post-Stretch Pipeline (Broadband)
 
 After any stretch method (autostretch or veralux), broadband images go through the same post-processing pipeline via `_apply_post_stretch` in `compose_broadband.py`:
@@ -88,6 +92,6 @@ After any stretch method (autostretch or veralux), broadband images go through t
 1. Color cast removal (SCNR)
 2. Background color neutralization
 3. Saturation adjustment
-4. VeraLux enhancements (Silentium, Revela, Vectra)
+4. VeraLux enhancements (Revela, Vectra)
 
 The stretch method only affects tone mapping. Post-stretch processing is always the same regardless of which stretch was used.

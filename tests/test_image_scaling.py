@@ -35,7 +35,9 @@ def test_enhancement_preserves_background_scale(
     success, _ = apply(MagicMock(), path, Config())
     assert success
     with fits.open(path, memmap=False) as hdus:
-        result = hdus[0].data / 65535.0
+        result = hdus[0].data
+        if np.issubdtype(result.dtype, np.integer):
+            result = result / np.iinfo(result.dtype).max
     assert np.isfinite(result).all()
     assert 0.06 < np.median(result[:, 32:96, 32:96]) < 0.10
 
@@ -129,3 +131,39 @@ def test_nonfinite_pixels_fail_before_stretch_or_statistics(
             apply_stretch(MagicMock(), path, Config())
         else:
             SirilWrapper(MagicMock()).get_image_stats(path)
+
+
+@pytest.mark.parametrize("rgb", [False, True])
+def test_linear_denoise_keeps_faint_signal_and_is_not_reapplied_after_stretch(
+    tmp_path: Path, rgb: bool
+) -> None:
+    """Linear output must survive below one 16-bit step and bypass post-stretch NR."""
+    from siril_job_runner.stretch_helpers import (
+        apply_enhancements,
+        apply_linear_noise_reduction,
+    )
+
+    pixels = np.full((3, 64, 64) if rgb else (64, 64), 0.000002, dtype=np.float32)
+    path = tmp_path / "linear.fit"
+    fits.writeto(path, pixels)
+    cfg = Config(veralux_revela_enabled=False, veralux_vectra_enabled=False)
+    siril = MagicMock()
+    apply_linear_noise_reduction(siril, path, cfg, lambda _: None)
+    result = fits.getdata(path, memmap=False)
+    np.testing.assert_allclose(result, pixels, atol=1e-9, rtol=0)
+
+    saved = path.read_bytes()
+    apply_enhancements(siril, path, cfg, lambda _: None)
+    assert path.read_bytes() == saved
+
+
+def test_linear_denoise_failure_stops_processing(tmp_path: Path) -> None:
+    """A failed Siril reload must not let processing use the previous image."""
+    from siril_job_runner.stretch_helpers import apply_linear_noise_reduction
+
+    path = tmp_path / "linear.fit"
+    fits.writeto(path, np.full((32, 32), 0.01, dtype=np.float32))
+    siril = MagicMock()
+    siril.load.return_value = False
+    with pytest.raises(RuntimeError, match="Silentium"):
+        apply_linear_noise_reduction(siril, path, Config(), lambda _: None)

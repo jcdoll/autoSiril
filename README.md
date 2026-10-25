@@ -51,7 +51,7 @@ Features:
 - Temperature tolerance matching for darks/bias
 - Multi-night light frame support
 - Support for LRGB, SHO, and HOO workflows
-- VeraLux processing steps: Stretch, Silentium (noise), Revela (detail), Vectra (saturation), StarComposer
+- VeraLux processing: Silentium noise reduction on linear data, then stretch, Revela detail, Vectra saturation, and optional StarComposer
 
 See [siril_job_runner/README.md](siril_job_runner/README.md) for full documentation.
 

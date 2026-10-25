@@ -46,7 +46,7 @@ def _apply_micro_blur(data: np.ndarray, sigma: float = 0.5) -> np.ndarray:
     """
     result = np.zeros_like(data)
     for c in range(data.shape[0]):
-        result[c] = gaussian_filter(data[c], sigma=sigma)
+        result[c] = gaussian_filter(data[c], sigma=sigma, mode="mirror")
     return result
 
 
@@ -71,8 +71,7 @@ def _calculate_anchor_adaptive(
     L = r_w * data[0] + g_w * data[1] + b_w * data[2]
 
     # Sample for efficiency on large images
-    total_pixels = L.size
-    stride = max(1, total_pixels // 1000000)
+    stride = max(1, data.size // 1000000)
     sampled = L.flat[::stride]
 
     # Filter valid pixels (L > 0)
@@ -190,6 +189,9 @@ def _apply_color_grip(
         Blended result
     """
     r_w, g_w, b_w = weights
+
+    if grip <= 0.001:
+        return scalar
 
     # Start with uniform grip
     grip_map = np.full_like(scalar[0], grip)

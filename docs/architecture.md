@@ -222,7 +222,7 @@ Key parameters:
 
 ### VeraLux Silentium (Noise Suppression)
 
-Wavelet-based noise reduction using SWT (Stationary Wavelet Transform). Operates in luminance and chrominance channels independently.
+Wavelet-based noise reduction using SWT (Stationary Wavelet Transform). Runs on linear data after optional deconvolution and before StarNet or stretching, following upstream input requirements. RGB and mono working images retain floating-point precision; RGB luminance and chrominance are treated independently.
 
 Key parameters:
 - `veralux_silentium_enabled`: Enable noise suppression (default: true)
@@ -263,7 +263,7 @@ After any stretch method (autostretch or veralux), broadband images go through t
 1. Color cast removal (SCNR green/magenta)
 2. Background color neutralization (linear match G,B to R)
 3. Saturation adjustment
-4. VeraLux enhancements (Silentium denoise, Revela detail, Vectra saturation)
+4. VeraLux enhancements (Revela detail, Vectra saturation)
 
 This applies to all output variants (baseline, starless, LRGB, RGB) uniformly. The pipeline is implemented as `_apply_post_stretch()` in `compose_broadband.py`.
 
