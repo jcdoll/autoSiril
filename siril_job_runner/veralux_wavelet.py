@@ -8,28 +8,10 @@ Provides a trous wavelet decomposition and reconstruction.
 """
 
 import numpy as np
-from scipy.ndimage import convolve
+from scipy.ndimage import convolve1d
 
 # B3-spline kernel for a trous wavelet transform
 _B3_KERNEL_1D = np.array([1, 4, 6, 4, 1], dtype=np.float64) / 16.0
-
-
-def _build_atrous_kernel(scale: int) -> np.ndarray:
-    """
-    Build 2D a trous kernel for given scale.
-
-    The a trous algorithm inserts zeros between kernel elements,
-    effectively doubling the kernel size at each scale.
-    """
-    step = 2**scale
-    size = 4 * step + 1
-
-    kernel_2d = np.zeros((size, size), dtype=np.float64)
-    for i, vi in enumerate(_B3_KERNEL_1D):
-        for j, vj in enumerate(_B3_KERNEL_1D):
-            kernel_2d[i * step, j * step] = vi * vj
-
-    return kernel_2d
 
 
 def atrous_decomposition(
@@ -51,13 +33,12 @@ def atrous_decomposition(
     current = img.astype(np.float64)
 
     for scale in range(n_scales):
-        kernel = _build_atrous_kernel(scale)
-        if current.ndim == 3:
-            smoothed = np.stack(
-                [convolve(current[c], kernel, mode="reflect") for c in range(3)], axis=0
-            )
-        else:
-            smoothed = convolve(current, kernel, mode="reflect")
+        step = 2**scale
+        kernel = np.zeros(4 * step + 1, dtype=np.float64)
+        kernel[::step] = _B3_KERNEL_1D
+        # The B3 kernel separates into row and column passes, without mixing color.
+        smoothed = convolve1d(current, kernel, axis=-2, mode="reflect")
+        smoothed = convolve1d(smoothed, kernel, axis=-1, mode="reflect")
 
         plane = current - smoothed
         planes.append(plane)
