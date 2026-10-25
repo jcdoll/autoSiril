@@ -22,7 +22,7 @@ from astropy.io import fits
 from scipy.ndimage import maximum_filter
 from scipy.signal import convolve2d
 
-from siril_job_runner.config import Config
+from siril_job_runner.config import DEFAULTS, Config
 from siril_job_runner.protocols import SirilInterface
 from siril_job_runner.veralux_colorspace import lab_to_rgb, rgb_to_lab
 
@@ -335,10 +335,10 @@ def _multiscale_denoise(
 
 def denoise_image(
     data: np.ndarray,
-    intensity: float = 25.0,
-    detail_guard: float = 50.0,
-    chroma: float = 30.0,
-    shadow_smooth: float = 10.0,
+    intensity: float = DEFAULTS.veralux_silentium_intensity,
+    detail_guard: float = DEFAULTS.veralux_silentium_detail_guard,
+    chroma: float = DEFAULTS.veralux_silentium_chroma,
+    shadow_smooth: float = DEFAULTS.veralux_silentium_shadow_smooth,
 ) -> tuple[np.ndarray, dict[str, float]]:
     """
     Denoise linear RGB or mono data using upstream's no-star-list path.

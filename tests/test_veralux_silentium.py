@@ -165,7 +165,9 @@ def test_denoise_matches_upstream_linear_reference(mono: bool) -> None:
     data = np.stack([signal * 1.4, signal, signal * 0.6]).astype(np.float32)
     if mono:
         data = data[0]
-    result, _ = denoise_image(data)
+    result, _ = denoise_image(
+        data, intensity=25, detail_guard=50, chroma=30, shadow_smooth=10
+    )
     # Independently executed Silentium 1.0.3 apply_noise_reduction, with adaptive
     # noise, chroma enabled, no star list; sliders 25/50/30/10. Sample edges too.
     # SHA256 62e9db5e1f470d38d8e635da9d1f892ee59ab6b6477e471b69d2725de5d655f8

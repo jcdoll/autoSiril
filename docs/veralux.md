@@ -95,6 +95,12 @@ and M45 RGB crops differ from the upstream no-star-list path by less than
 0.000002 per channel. A fixed display stretch shows the processing-order change
 without changing display parameters between images.
 
+For this pipeline, Silentium defaults to intensity 10 and shadow smoothing 0,
+instead of upstream's 25 and 10. Detail protection stays at 50 and chroma at 30;
+the algorithm is unchanged. This is an approved preference for less smoothing,
+supported most clearly by the SH2-184 crop comparison. Full-image comparisons
+and per-image tuning remain pending; these values are not a universal optimum.
+
 StarComposer follows [StarComposer 2.1.1](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_StarComposer.py)'s
 mirror boundary for the small input blur, full-RGB anchor sampling stride, and
 scalar-only result at negligible color grip. The old boundary rule changed edge
