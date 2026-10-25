@@ -92,8 +92,8 @@ The following implementation differences remain:
   0.005 on a 0-1 scale. Giving the upstream engine the same Lab conversion reduces
   the maximum difference below 0.000002. This is measured agreement, not bitwise
   identity or a universal error bound.
-- The bounded stretch solver returns its last candidate when the requested target
-  cannot be reached within the configured bounds. Upstream's inner solver can
+- For usable signal, the bounded stretch solver returns its last candidate when
+  the requested target cannot be reached within the configured bounds. Upstream's inner solver can
   instead return its initial 2.0 value. Retaining the candidate respects the
   existing minimum/maximum controls rather than silently leaving their range.
 

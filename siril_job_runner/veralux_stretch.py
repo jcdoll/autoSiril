@@ -92,7 +92,7 @@ def hyperbolic_stretch_value(
     term2 = math.asinh(b)
     norm_factor = math.asinh(D * (1.0 - SP) + b) - term2
 
-    if norm_factor == 0:
+    if abs(norm_factor) < 1e-12:
         norm_factor = 1e-6
 
     return (term1 - term2) / norm_factor
@@ -402,7 +402,7 @@ def _hyperbolic_stretch_array(data, D: float, b: float, SP: float = 0.0):
     term2 = np.arcsinh(b)
     norm_factor = np.arcsinh(D * (1.0 - SP) + b) - term2
 
-    if norm_factor == 0:
+    if abs(norm_factor) < 1e-12:
         norm_factor = 1e-6
 
     return (term1 - term2) / norm_factor
