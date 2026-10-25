@@ -58,19 +58,48 @@ LRGB reports the existing `rgb_linear.fit` as its linear RGB product.
 
 The original VeraLux code is licensed under GPL-3.0-or-later.
 
-## Differences from upstream
+## Upstream behavior and justified differences
 
-The HyperMetric port retains a luminance-linked final midtone adjustment. Upstream
-[HyperMetric 1.5.2](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_HyperMetric_Stretch.py)
-applies that adjustment separately to each color channel. These produce different
-colors; the local implementation is not an exact reference match.
+Follow upstream algorithm behavior by default. A local deviation needs a reproduced
+bug or a controlled comparison that establishes why it is needed. Existing code
+and a subjective preference for stronger color are not sufficient justification.
+Compare appearance changes on retained image data before adopting them.
 
-Image loading uses the storage type to determine units. Integer images are divided
-by their type's maximum; floating-point pixels retain their units. Out-of-range
-pixels are clipped on the processing copy, and non-finite inputs are rejected.
-This deliberately avoids the upstream maximum-based scale guess.
+The HyperMetric port follows [HyperMetric 1.5.2](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_HyperMetric_Stretch.py)
+for the final per-channel midtone curve and automatic background check. The old
+linked curve and one-pass solver changed color and contrast without evidence
+justifying those differences. Paired M31, M42 and M45 comparisons support removing
+them. With identical settings, automatic stretch values match upstream and output
+pixels differ by less than two 16-bit steps in those comparisons.
 
-Revela squares the protection mask for stronger protection during structure
-enhancement, following the upstream formula. Its existing protection strength
-remains 0.8; upstream Revela 1.0.2 uses 1.0. Changing that strength is a separate
-appearance decision.
+Revela follows [Revela 1.0.2](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Revela.py):
+star protection strength is 1.0, structure uses the squared protection mask, and
+noise estimates have the upstream minimum floor. Native-resolution crops from the
+same three targets show the stronger protection chiefly reduces extra brightening
+around stars. There is no demonstrated reason to retain the old strength of 0.8.
+
+The following implementation differences remain:
+
+- FITS units come from storage type, not the brightest pixel. Integer samples are
+  divided by their type's maximum; floating-point samples retain their units.
+  Outliers are clipped on a processing copy, and non-finite inputs are rejected.
+  In a reproduced failure, changing one float pixel from 1.0999 to 1.1001 made the
+  old upstream scale guess change the whole image. Original files are untouched.
+- The existing NumPy/SciPy implementation uses analytic Lab conversion and
+  float64 arithmetic; upstream Revela uses OpenCV and float32. This avoids adding
+  OpenCV to production for a different numerical implementation of the same
+  formulas. On the three inspected crops, the maximum RGB difference is below
+  0.005 on a 0-1 scale. Giving the upstream engine the same Lab conversion reduces
+  the maximum difference below 0.000002. This is measured agreement, not bitwise
+  identity or a universal error bound.
+- The bounded stretch solver returns its last candidate when the requested target
+  cannot be reached within the configured bounds. Upstream's inner solver can
+  instead return its initial 2.0 value. Retaining the candidate respects the
+  existing minimum/maximum controls rather than silently leaving their range.
+
+These comparisons use the existing pipeline settings: target background 0.10,
+IMX571 weights for the ASI2600, statistical anchor, and ready-to-use mode. These are
+explicit processing choices, not a claim to reproduce the upstream GUI defaults
+(target 0.20 and adaptive anchor enabled). GUI controls and scientific mode are
+not ported. Changes to those settings need their own appearance comparison; they
+are held fixed here so algorithm changes can be assessed independently.

@@ -63,6 +63,41 @@ def test_stretch_does_not_rescale_other_pixels_at_float_threshold(
     np.testing.assert_array_equal(outputs[0], outputs[1])
 
 
+@pytest.mark.parametrize("rgb", [False, True])
+def test_automatic_stretch_matches_upstream_reference(
+    tmp_path: Path, rgb: bool
+) -> None:
+    """Check public output against independently executed HyperMetric 1.5.2."""
+    from siril_job_runner.veralux_stretch import apply_stretch
+
+    y, x = np.mgrid[-1:1:64j, -1:1:64j]
+    signal = 0.02 + 0.05 * np.exp(-(x * x + y * y) / 0.2) + 0.002 * (x + 1)
+    data = np.stack([signal * 1.3, signal, signal * 0.6]) if rgb else signal
+    path = tmp_path / "reference.fit"
+    fits.writeto(path, data.astype(np.float32))
+    success, _ = apply_stretch(MagicMock(), path, Config())
+    assert success
+    result = fits.getdata(path.with_stem("reference_stretched"), memmap=False) / 65535
+
+    # Executed upstream AutoSolverThread.run + process_veralux_v6 with target 0.10,
+    # IMX571, statistical anchor and ready_to_use mode. Source and hash:
+    # https://gitlab.com/free-astro/siril-scripts/-/raw/main/VeraLux/VeraLux_HyperMetric_Stretch.py
+    # SHA256: 5b9704c0dac81dac71fb0be4b5c0efae7276cf68a7285f777f341b62fb90c571
+    # Samples cover faint background, bright signal and unequal RGB channels.
+    expected = (
+        [
+            [0.174069077, 1.0, 0.207399726],
+            [0.047659017, 0.723682404, 0.073972687],
+            [0.0, 0.311463326, 0.0],
+        ]
+        if rgb
+        else [0.064109348, 1.0, 0.097725704]
+    )
+    np.testing.assert_allclose(
+        result[..., [10, 32, 53], [17, 32, 48]], expected, atol=2 / 65535, rtol=0
+    )
+
+
 @pytest.mark.parametrize("storage", ["uint16", "float32"])
 def test_image_statistics_preserve_units(tmp_path: Path, storage: str) -> None:
     """Integer full scale and float outliers cannot misidentify the weakest channel."""

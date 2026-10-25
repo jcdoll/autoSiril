@@ -4,8 +4,7 @@ VeraLux HyperMetric Stretch implementation.
 Based on VeraLux by Riccardo Paterniti.
 https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_HyperMetric_Stretch.py
 
-This port keeps a luminance-linked final MTF to preserve color ratios; upstream
-HyperMetric 1.5.2 applies that MTF separately to each channel.
+The final midtone adjustment follows HyperMetric 1.5.2's per-channel curve.
 
 Ported from standalone VeraLux reference script. Algorithmic functions are
 intentionally self-contained to allow independent validation against the
@@ -15,7 +14,11 @@ veralux_colorspace.py and veralux_wavelet.py.
 
 import math
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    import numpy as np
+    from numpy.typing import NDArray
 
 from siril_job_runner.config import Config
 from siril_job_runner.protocols import SirilInterface
@@ -161,8 +164,7 @@ def solve_log_d(
     """
     Binary search to find log_d that achieves target median.
 
-    Reference: Simple binary search without star pressure damping.
-    Star pressure adjustment is applied to target_median BEFORE calling this.
+    Reference: Simple binary search for one candidate background target.
 
     Args:
         median_in: Input median value
@@ -201,6 +203,54 @@ def solve_log_d(
         best_log_d = mid_log
 
     return best_log_d
+
+
+def _solve_auto_stretch(
+    data: "NDArray[np.float64]",
+    weights: tuple[float, float, float],
+    config: Config,
+) -> float:
+    """Select stretch strength with upstream's sampled background check."""
+    import numpy as np
+
+    is_rgb = data.ndim == 3 and data.shape[0] == 3
+    pixel_count = data[0].size if is_rgb else data.size
+    step = max(1, pixel_count // 100000)
+    sample = data.reshape(3, 1, -1)[:, :, ::step] if is_rgb else data.ravel()[::step]
+    anchored = np.maximum(sample - _calculate_anchor_percentile(sample), 0.0)
+    luminance = (
+        sum(weight * channel for weight, channel in zip(weights, anchored, strict=True))
+        if is_rgb
+        else anchored
+    )
+    star_pressure = estimate_star_pressure(luminance)
+    valid = luminance[luminance > 1e-7]
+    if valid.size == 0:
+        return 2.0
+
+    median = float(np.median(valid))
+    target = config.veralux_target_median
+    log_d = 2.0
+    for _ in range(15):
+        log_d = solve_log_d(
+            median,
+            target,
+            config.veralux_b,
+            config.veralux_log_d_min,
+            config.veralux_log_d_max,
+        )
+        if star_pressure > 0.6:
+            target *= 1.0 - 0.15 * star_pressure
+        stretched = _hyperbolic_stretch_array(valid, 10.0**log_d, config.veralux_b)
+        floor = max(
+            float(stretched.min()), float(np.median(stretched) - 2.7 * stretched.std())
+        )
+        if floor <= 0.001:
+            break
+        target -= 0.015
+        if target < 0.05:
+            break
+    return log_d
 
 
 def build_pixelmath_formula(D: float, b: float) -> str:
@@ -426,7 +476,7 @@ def _adaptive_output_scaling(
     1. Extract luminance using sensor weights
     2. Find global floor: max(min_L, median_L - 2.7*std_L)
     3. Smart Max: check if max is hot pixel
-    4. Compute soft_ceil as max of per-channel 99.9th percentiles (RGB)
+    4. Compute soft_ceil as max of per-channel 99th percentiles (RGB)
     5. Compute scale factors
     6. Apply scaling with pedestal
     7. Apply MTF to reach target background
@@ -508,16 +558,8 @@ def _adaptive_output_scaling(
             current_bg * (2.0 * target_bg - 1.0) - target_bg
         )
         if is_rgb:
-            # Linked MTF: apply to luminance, scale channels proportionally
-            # This intentionally preserves ratios instead of upstream
-            # HyperMetric 1.5.2's per-channel MTF.
-            L_before = (
-                r_weight * result[0] + g_weight * result[1] + b_weight * result[2]
-            )
-            L_after = _apply_mtf(L_before, m)
-            scale = L_after / (L_before + 1e-9)
             for i in range(3):
-                result[i] = result[i] * scale
+                result[i] = _apply_mtf(result[i], m)
         else:
             result = _apply_mtf(result, m)
 
@@ -531,14 +573,14 @@ def apply_stretch(
     log_fn: Callable[[str], None] | None = None,
 ) -> tuple[bool, float]:
     """
-    Apply the VeraLux-derived stretch with luminance-linked output scaling.
+    Apply the VeraLux stretch with upstream per-channel output scaling.
 
     For RGB images:
     1. Normalize input based on dtype
-    2. Calculate anchor (black point) using morphological or percentile method
+    2. Calculate anchor (black point) using the statistical percentile method
     3. Subtract anchor from data
     4. Extract luminance from anchored data using sensor weights
-    5. Estimate star pressure for solver damping
+    5. Select stretch strength using the sampled background check
     6. Compute color ratios from anchored data
     7. Stretch luminance
     8. Apply color convergence (power=3.5)
@@ -600,10 +642,6 @@ def apply_stretch(
             + b_weight * img_anchored[2]
         )
 
-        # Step 4: Estimate star pressure for solver damping
-        star_pressure = estimate_star_pressure(luminance)
-        log(f"Star pressure: {star_pressure:.3f}")
-
         # Step 5: Compute color ratios from ANCHORED data
         # Reference (line 1099): epsilon = 1e-9; L_safe = L_anchored + epsilon
         epsilon = 1e-9
@@ -621,26 +659,10 @@ def apply_stretch(
         data_anchored = np.maximum(data - anchor, 0.0)
         median_in = float(np.median(data_anchored))
         luminance = data_anchored
-        star_pressure = estimate_star_pressure(luminance)
-        log(f"Star pressure: {star_pressure:.3f}")
 
     log(f"Input median (anchored): {median_in:.6f}, target: {target_bg}")
 
-    # Apply star pressure damping to target BEFORE solver (reference: lines 1534-1536)
-    # Only applies when star_pressure > 0.6 to avoid star-driven over-compression
-    effective_target = target_bg
-    if star_pressure > 0.6:
-        effective_target = target_bg * (1.0 - 0.15 * star_pressure)
-        log(f"Star pressure damping: target adjusted to {effective_target:.4f}")
-
-    # Solve for optimal log_d
-    log_d = solve_log_d(
-        median_in=median_in,
-        target_median=effective_target,
-        b=protect_b,
-        log_d_min=getattr(config, "veralux_log_d_min", 0.0),
-        log_d_max=getattr(config, "veralux_log_d_max", 7.0),
-    )
+    log_d = _solve_auto_stretch(data, weights, config)
 
     D = 10.0**log_d
     log(f"Calculated log_d={log_d:.2f} (D={D:.1f})")
