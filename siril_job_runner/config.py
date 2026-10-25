@@ -136,10 +136,10 @@ class Config:
 
     # VeraLux Silentium - Noise suppression (SWT wavelets)
     veralux_silentium_enabled: bool = True
-    veralux_silentium_intensity: float = 25.0  # Luminance noise reduction 0-100
+    veralux_silentium_intensity: float = 10.0  # Luminance noise reduction 0-100
     veralux_silentium_detail_guard: float = 50.0  # Detail protection 0-100
     veralux_silentium_chroma: float = 30.0  # Chroma noise reduction 0-100
-    veralux_silentium_shadow_smooth: float = 10.0  # Extra shadow smoothing 0-100
+    veralux_silentium_shadow_smooth: float = 0.0  # Extra shadow smoothing 0-100
 
     # Star removal (Siril StarNet integration)
     # When enabled, runs starnet on linear data to create starless + starmask
