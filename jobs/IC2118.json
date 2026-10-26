@@ -62,6 +62,8 @@
     "flip_calibration_vertical": true,
     "dark_temp_override": -10,
     "deconv_enabled": true,
+    "veralux_silentium_intensity": 10.0,
+    "veralux_silentium_shadow_smooth": 0.0,
     "autostretch_targetbg": 0.1,
     "autostretch_mtf_low": 0.0,
     "autostretch_mtf_mid": 0.5,
