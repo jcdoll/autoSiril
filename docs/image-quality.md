@@ -53,6 +53,28 @@ Reducing StarComposer color grip did not fix it, so that setting stays unchanged
 Some upper-edge purple glow remains; the available evidence does not justify
 removing broad background structure that may include real faint nebulosity.
 
+IC2118 uses Silentium intensity 10 and shadow smoothing 0. With the upstream
+defaults of 25 and 10, a conspicuous blue ring appeared around the right-hand
+bright-star residual in both stretch methods. Saved stages place its onset at
+LRGB combination: the separately removed RGB and luminance stars leave
+different residuals. Saturation intensifies the ring; SCNR and Revela have
+little effect on it.
+
+A comparison from the same pre-denoise RGB/L images removed the ring with
+10/0 while retaining the nebula structure. The control reproduced the current
+denoised checkpoints exactly; the candidate reran StarNet and all six outputs.
+This supports a target-specific override, not a change to the LRGB algorithm.
+Broad halos, faint vertical structure and background grain remain.
+
+## NGC4244
+
+NGC4244 uses a VeraLux target median of 0.10. A controlled comparison against
+0.20 used identical retained RGB/L and starless checkpoints, with adaptive
+anchoring and every other setting unchanged. The lower target makes colored
+background grain less distracting while retaining the visible disk and tapered
+extensions. The faintest outer light and small background galaxies are less
+prominent; the underlying noise and StarNet remnants remain.
+
 ## Color-calibration checks
 
 SPCC background tolerances were passed in the wrong order. Siril expects
