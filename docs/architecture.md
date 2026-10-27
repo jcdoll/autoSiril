@@ -143,9 +143,9 @@ PROCESSING LOOP (for each stretch method)
 11. Add L as luminance (if LSHO/LHOO) -> narrowband
 12. Color removal (SCNR)
 13. Background neutralization
-14. Save {type}_starless_{method} (if starnet enabled)
-15. Composite stars back (if starnet enabled)
-16. Apply saturation
+14. Finish RGB: optional Curves, saturation, Revela/Vectra
+15. Save finished {type}_starless_{method} (if starnet enabled)
+16. Composite stars back (if starnet enabled)
 17. Save {type}_auto_{method}
 ```
 
@@ -217,7 +217,7 @@ The VeraLux system provides advanced image processing capabilities beyond Siril'
 HyperMetric stretch with target background median. Uses binary search to find optimal D parameter for the hyperbolic transfer function. Provides more control over highlight preservation than autostretch.
 
 Key parameters:
-- `veralux_target_median`: Target background brightness (default: 0.20)
+- `veralux_target_median`: Target background brightness (default: 0.12)
 - `veralux_adaptive_anchor`: Estimate black point from the histogram (default: true, RGB and mono); false uses the statistical percentile
 - `veralux_sensor_profile`: VeraLux RGB brightness weights for stretching and star recombination (default: rec709). Independent of SPCC's sensor calibration; see [the distinction](veralux.md#veralux-brightness-weights-and-spcc-calibration).
 - `veralux_b`: Highlight protection / curve knee (default: 6.0)
@@ -261,14 +261,23 @@ Key parameters:
 
 ### Post-Stretch Pipeline
 
-After any stretch method (autostretch or veralux), broadband images go through the same post-processing pipeline. The stretch method only affects tone mapping; everything after is identical:
+Broadband and narrowband remove color casts and optionally neutralize the
+background after RGB assembly. Both then use `finish_stretched_image()`:
 
-1. Color cast removal (SCNR green/magenta)
-2. Background color neutralization (linear match G,B to R)
-3. Saturation adjustment
-4. VeraLux enhancements (Revela detail, Vectra saturation)
+1. Optional VeraLux Curves, for VeraLux variants only
+2. Siril saturation, unless Vectra is enabled
+3. Revela detail enhancement
+4. Vectra saturation, if enabled
 
-This applies to all output variants (baseline, starless, LRGB, RGB) uniformly. The pipeline is implemented as `_apply_post_stretch()` in `compose_broadband.py`.
+Starless exports contain this finished image. StarComposer then restores stars
+onto it; the recombined image is not finished a second time. Curves defaults to
+identity. See [VeraLux finishing controls](veralux.md#finishing-curves) for the
+upstream algorithm, supported controls and differences.
+
+Requested background extraction, channel matching, deconvolution, stretching
+and finishing must succeed. Failures stop the job before it archives incomplete
+results; VeraLux failures never substitute autostretch under a VeraLux filename.
+Working VeraLux FITS files use float32. JPEG and TIFF are export formats.
 
 ## Configuration System
 

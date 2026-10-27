@@ -247,7 +247,7 @@ def apply_revela(
         protect_stars=config.veralux_revela_protect_stars,
     )
 
-    out_data = np.clip(enhanced * 65535, 0, 65535).astype(np.uint16)
+    out_data = np.clip(enhanced, 0, 1).astype(np.float32)
     hdu = fits.PrimaryHDU(out_data, header=header)
     hdu.writeto(image_path, overwrite=True)
 

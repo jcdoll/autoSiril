@@ -139,13 +139,33 @@ def apply_enhancements(
         log_fn("Applying VeraLux Revela (detail enhancement)...")
         success, _stats = veralux_revela.apply_revela(siril, image_path, cfg, log_fn)
         if not success:
-            log_fn("Revela failed, continuing...")
+            raise RuntimeError("Revela failed during composition")
 
     if cfg.veralux_vectra_enabled:
         log_fn("Applying VeraLux Vectra (smart saturation)...")
         success, _stats = veralux_vectra.apply_vectra(siril, image_path, cfg, log_fn)
         if not success:
-            log_fn("Vectra failed, continuing...")
+            raise RuntimeError("Vectra failed during composition")
+
+
+def finish_stretched_image(
+    siril: "SirilInterface",
+    image_path: Path,
+    method: StretchMethod,
+    config: Config,
+    log_fn: Callable[[str], None],
+) -> None:
+    """Finish RGB before exporting starless images or restoring their stars."""
+    from .veralux_curves import apply_curves
+
+    if not siril.load(str(image_path)):
+        raise RuntimeError("Siril load failed during finishing")
+    if method == StretchMethod.VERALUX:
+        apply_curves(siril, image_path, config, log_fn)
+    apply_saturation(siril, config)
+    if not siril.save(str(image_path)):
+        raise RuntimeError("Siril save failed during finishing")
+    apply_enhancements(siril, image_path, config, log_fn)
 
 
 def save_all_formats(

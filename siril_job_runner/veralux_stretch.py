@@ -729,8 +729,8 @@ def apply_stretch(
     # Clip to valid range
     stretched = np.clip(stretched, 0, 1)
 
-    # Convert back to 16-bit for saving
-    out_data = (stretched * 65535).astype(np.uint16)
+    # Keep working pixels in floating point through finishing.
+    out_data = stretched.astype(np.float32)
 
     # Save stretched image to a new output file (avoid Windows file lock issues)
     output_path = image_path.with_name(image_path.stem + "_stretched.fit")

@@ -57,7 +57,9 @@ def test_stretch_does_not_rescale_other_pixels_at_float_threshold(
         pixels[:, 0, 0] = peak
         path = tmp_path / f"input{index}.fit"
         fits.writeto(path, pixels)
-        success, _ = apply_stretch(MagicMock(), path, Config())
+        success, _ = apply_stretch(
+            MagicMock(), path, Config(veralux_target_median=0.20)
+        )
         assert success
         outputs.append(
             fits.getdata(path.with_stem(f"input{index}_stretched"), memmap=False)
@@ -84,7 +86,7 @@ def test_automatic_stretch_matches_upstream_reference(
     )
     success, _ = apply_stretch(MagicMock(), path, config)
     assert success
-    result = fits.getdata(path.with_stem("reference_stretched"), memmap=False) / 65535
+    result = fits.getdata(path.with_stem("reference_stretched"), memmap=False)
 
     # Executed upstream AutoSolverThread.run + process_veralux_v6 with target 0.10,
     # IMX571, statistical anchor and ready_to_use mode. Source and hash:
@@ -150,7 +152,9 @@ def test_adaptive_stretch_matches_upstream_on_faint_signal(
     data = np.stack([signal * 1.3, signal, signal * 0.6]) if rgb else signal
     path = tmp_path / "faint.fit"
     fits.writeto(path, data.astype(np.float32))
-    success, log_d = apply_stretch(MagicMock(), path, Config())
+    success, log_d = apply_stretch(
+        MagicMock(), path, Config(veralux_target_median=0.20)
+    )
     assert success
     # Independently executed HyperMetric 1.5.2 AutoSolverThread.run and
     # process_veralux_v6: adaptive anchor, target 0.20, Rec.709, ready_to_use.
@@ -159,7 +163,7 @@ def test_adaptive_stretch_matches_upstream_on_faint_signal(
     # This faint histogram peaks below bin 100 and selects a histogram anchor,
     # exercising the adaptive path rather than only its percentile fallback.
     assert log_d == pytest.approx(expected_log_d)
-    result = fits.getdata(path.with_stem("faint_stretched"), memmap=False) / 65535
+    result = fits.getdata(path.with_stem("faint_stretched"), memmap=False)
     np.testing.assert_allclose(
         result[..., [10, 32, 53], [17, 32, 48]], expected, atol=2 / 65535, rtol=0
     )
@@ -177,7 +181,7 @@ def test_nonfinite_pixels_fail_before_stretch_or_statistics(
     fits.writeto(path, np.full((3, 8, 8), np.nan, dtype=np.float32))
     with pytest.raises(ValueError, match="non-finite"):
         if operation == "stretch":
-            apply_stretch(MagicMock(), path, Config())
+            apply_stretch(MagicMock(), path, Config(veralux_target_median=0.20))
         else:
             SirilWrapper(MagicMock()).get_image_stats(path)
 

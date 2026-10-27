@@ -9,7 +9,12 @@ import pytest
 from astropy.io import fits
 
 from siril_job_runner.composition import compose_and_stretch
-from siril_job_runner.config import ColorRemovalMode, Config, SubskyMethod
+from siril_job_runner.config import (
+    ColorRemovalMode,
+    Config,
+    StretchMethod,
+    SubskyMethod,
+)
 from siril_job_runner.job_runner import JobRunner
 from siril_job_runner.models import ValidationResult
 from siril_job_runner.output_manager import (
@@ -280,3 +285,114 @@ def test_retry_cannot_use_old_siril_star_detections(tmp_path: Path) -> None:
         np.median(fits.getdata(result.linear_path), axis=(1, 2)), [0.3, 0.2, 0.1]
     )
     assert unrelated.read_text() == "keep other sequences"
+
+
+@pytest.mark.parametrize("method", list(StretchMethod))
+def test_curves_only_change_veralux_variants(
+    tmp_path: Path, method: StretchMethod
+) -> None:
+    """Autostretch remains a comparison control when a VeraLux curve is configured."""
+    from siril_job_runner.stretch_helpers import finish_stretched_image
+
+    path = tmp_path / "image.fit"
+    image = np.full((3, 8, 8), 0.3, dtype=np.float32)
+    fits.writeto(path, image)
+    config = Config(
+        veralux_curves_points=((0, 0), (1, 0.5)),
+        veralux_revela_enabled=False,
+    )
+    finish_stretched_image(image_siril(tmp_path), path, method, config, lambda _: None)
+    expected = image * (0.5 if method == StretchMethod.VERALUX else 1)
+    np.testing.assert_allclose(fits.getdata(path), expected, atol=1e-7)
+
+
+@pytest.mark.parametrize(
+    "job_type,channels", [("RGB", "BGR"), ("LRGB", "BGLR"), ("HOO", "HO")]
+)
+@pytest.mark.parametrize("command", ["subsky", "makepsf", "rl"])
+def test_requested_processing_failure_stops_exports(
+    tmp_path: Path, job_type: str, channels: str, command: str
+) -> None:
+    """Requested gradient removal and sharpening cannot silently be omitted."""
+    write_stacks(tmp_path, channels)
+    siril = image_siril(tmp_path)
+    getattr(siril, command).return_value = False
+    cfg = config(
+        palette="HOO",
+        post_stack_subsky_method=SubskyMethod.POLY,
+        deconv_enabled=True,
+        deconv_save_psf=False,
+    )
+    with pytest.raises(RuntimeError, match="subsky|PSF|Deconvolution"):
+        compose_and_stretch(siril, tmp_path, job_type, cfg)
+    assert not list(tmp_path.glob("*.jpg"))
+
+
+def test_requested_narrowband_balance_failure_stops_exports(tmp_path: Path) -> None:
+    """Failed channel matching cannot be passed off as balanced color."""
+    write_stacks(tmp_path, "HO")
+    siril = image_siril(tmp_path)
+    siril.linear_match.return_value = False
+    with pytest.raises(RuntimeError, match="linear_match"):
+        compose_and_stretch(siril, tmp_path, "HOO", config(palette="HOO"))
+    assert not list(tmp_path.glob("*.jpg"))
+
+
+@pytest.mark.parametrize("job_type,channels", [("RGB", "BGR"), ("LRGB", "BGLR")])
+def test_failed_veralux_cannot_export_mislabeled_autostretch(
+    tmp_path: Path, job_type: str, channels: str
+) -> None:
+    """Fail at the external reload of a real VeraLux result, not its algorithm."""
+    write_stacks(tmp_path, channels)
+    siril = image_siril(tmp_path)
+    load = siril.load.side_effect
+
+    def failing_load(name: str) -> bool:
+        """Reject only the requested engine's newly written result."""
+        return False if name.endswith("_stretched.fit") else load(name)
+
+    siril.load.side_effect = failing_load
+    with pytest.raises(RuntimeError, match="VeraLux stretch failed"):
+        compose_and_stretch(siril, tmp_path, job_type, config())
+    assert not list(tmp_path.glob("*veralux.jpg"))
+
+
+def test_narrowband_exports_finished_starless_and_recomposes_it(tmp_path: Path) -> None:
+    """An empty star layer must reproduce the finished, saturated starless image."""
+    write_stacks(tmp_path, "HO")
+    siril = image_siril(tmp_path)
+    registered = tmp_path / "stacks/work/registered"
+
+    def empty_star_layer(**kwargs: object) -> bool:
+        """Stand in for StarNet on a field with no stars."""
+        for source in registered.glob("*_linear.fit"):
+            fits.writeto(
+                source.with_stem("starmask_" + source.stem),
+                np.zeros_like(fits.getdata(source)),
+                overwrite=True,
+            )
+        return True
+
+    def saturation(amount: float, background: float) -> bool:
+        """Emulate a visible external adjustment without mocking finishing."""
+        saved = registered / "saturation_input.fit"
+        siril.save(str(saved))
+        fits.writeto(saved, fits.getdata(saved) * 2, overwrite=True)
+        return siril.load(str(saved))
+
+    siril.starnet.side_effect = empty_star_layer
+    siril.satu.side_effect = saturation
+    compose_and_stretch(
+        siril,
+        tmp_path,
+        "HOO",
+        config(palette="HOO", starnet_enabled=True, narrowband_neutralization=False),
+    )
+    starless = fits.getdata(tmp_path / "hoo_starless_autostretch.fit")
+    np.testing.assert_allclose(starless[:, 0, 0], [0.2, 0.4, 0.4])
+    for method in StretchMethod:
+        np.testing.assert_allclose(
+            fits.getdata(tmp_path / f"hoo_auto_{method}.fit"),
+            fits.getdata(tmp_path / f"hoo_starless_{method}.fit"),
+            atol=1e-7,
+        )

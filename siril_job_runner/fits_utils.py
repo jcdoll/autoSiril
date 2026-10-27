@@ -232,7 +232,7 @@ def check_clipping(path: Path, config: Config = DEFAULTS) -> Optional[ClippingIn
                 bit_depth = 8
                 low_threshold = config.clipping_low_8bit
                 high_threshold = config.clipping_high_8bit
-            elif data.dtype in (np.float32, np.float64):
+            elif np.issubdtype(data.dtype, np.floating):
                 bit_depth = 16
                 max_val = float(data.max())
                 if max_val <= config.float_normalized_threshold:  # Normalized data

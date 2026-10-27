@@ -15,9 +15,9 @@ Processing flow:
        c. Add L as luminance (if LSHO/LHOO)
        d. Color removal (SCNR)
        e. Background neutralization
-       f. Save starless output (if starnet enabled)
-       g. Composite stars back (if starnet enabled)
-       h. Apply saturation
+       f. Curves, saturation and detail finishing
+       g. Save finished starless output (if starnet enabled)
+       h. Composite stars back (if starnet enabled)
        i. Save final output
 """
 
@@ -41,10 +41,9 @@ from .config import (
 from .models import CompositionResult, StackInfo
 from .palettes import build_effective_palette, formula_to_pixelmath, get_palette
 from .stretch_helpers import (
-    apply_enhancements,
     apply_linear_noise_reduction,
-    apply_saturation,
     apply_stretch,
+    finish_stretched_image,
     save_all_formats,
 )
 
@@ -240,7 +239,7 @@ def compose_narrowband(
                     raise RuntimeError("Siril save failed during composition")
                 log_fn(f"  {ch}: background extracted")
             else:
-                log_fn(f"  {ch}: subsky failed, using original")
+                raise RuntimeError(f"Siril subsky failed for {ch}")
 
     # Narrowband channel balancing (linear_match to equalize backgrounds)
     if cfg.narrowband_balance_enabled:
@@ -266,11 +265,9 @@ def compose_narrowband(
                             raise RuntimeError("Siril save failed during composition")
                         log_fn(f"  {ch}: matched to {ref_ch}")
                     else:
-                        log_fn(f"  {ch}: linear_match failed, using original")
+                        raise RuntimeError(f"Siril linear_match failed for {ch}")
         else:
-            log_fn(
-                f"WARNING: Reference channel {ref_ch} not in stacks, skipping balance"
-            )
+            raise ValueError(f"Narrowband balance reference {ref_ch} is not in stacks")
 
     # Diagnostic previews for individual stacks (linear)
     if cfg.diagnostic_previews:
@@ -316,7 +313,7 @@ def compose_narrowband(
                         raise RuntimeError("Siril save failed during composition")
                     log_fn(f"  {ch}: fitted to {ref_ch}")
                 else:
-                    log_fn(f"  {ch}: linear_match failed, using original")
+                    raise RuntimeError(f"Siril linear_match failed for {ch}")
 
     # Helper to apply palette to current channels
     def apply_palette_combination():
@@ -370,7 +367,7 @@ def compose_narrowband(
     if cfg.deconv_enabled:
         log_fn("Deconvolving linear channels...")
         for ch in narrowband_channels:
-            deconv_result = apply_deconvolution(
+            apply_deconvolution(
                 siril,
                 f"{ch}_linear",
                 f"{ch}_linear_deconv",
@@ -379,12 +376,11 @@ def compose_narrowband(
                 log_fn,
                 ch,
             )
-            if deconv_result == f"{ch}_linear_deconv":
-                if not siril.load(f"{ch}_linear_deconv"):
-                    raise RuntimeError("Siril load failed during composition")
-                if not siril.save(f"{ch}_linear"):
-                    raise RuntimeError("Siril save failed during composition")
-                log_fn(f"  {ch}: deconvolved")
+            if not siril.load(f"{ch}_linear_deconv"):
+                raise RuntimeError("Siril load failed during composition")
+            if not siril.save(f"{ch}_linear"):
+                raise RuntimeError("Siril save failed during composition")
+            log_fn(f"  {ch}: deconvolved")
 
     # ==========================================================================
     # NOISE REDUCTION AND STAR SEPARATION (on linear data, before stretch)
@@ -471,6 +467,11 @@ def compose_narrowband(
         ):
             raise RuntimeError("neutralize_rgb_background failed during composition")
 
+        # Finish the starless image before both export and star recombination.
+        finish_stretched_image(
+            siril, registered_dir / "narrowband.fit", StretchMethod(method), cfg, log_fn
+        )
+
         # Step 6: Save starless output (if star separation enabled)
         if cfg.starnet_enabled and star_source_ch:
             if not siril.load("narrowband"):
@@ -491,19 +492,8 @@ def compose_narrowband(
             if not siril.save("narrowband"):
                 raise RuntimeError("Siril save failed during composition")
 
-        # Step 8: Apply saturation
-        if not siril.load("narrowband"):
-            raise RuntimeError("Siril load failed during composition")
-        apply_saturation(siril, cfg)
-
-        # Step 9: Apply enhancements (Revela/Vectra) if enabled
+        # Save the finished image, with stars if requested.
         base_name = f"{type_name}_auto{suffix}"
-        if not siril.save(str(output_dir / base_name)):
-            raise RuntimeError("Siril save failed during composition")
-        image_path = output_dir / f"{base_name}.fit"
-        apply_enhancements(siril, image_path, cfg, log_fn)
-
-        # Step 10: Save outputs
         paths = save_all_formats(siril, output_dir, base_name, log_fn, cfg)
 
         if primary_paths is None:
