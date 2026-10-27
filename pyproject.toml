@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Automated Siril image processing pipeline with job file configuration"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "MIT AND GPL-3.0-or-later" }
 authors = [
     { name = "jcdoll" }
 ]

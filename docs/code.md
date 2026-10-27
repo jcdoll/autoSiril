@@ -85,13 +85,15 @@ Silentium runs once on the generated linear RGB and luminance images, or each
 narrowband channel, before StarNet and either stretch method. It preserves
 floating-point samples so faint signal survives the later stretch.
 
-## Post-Stretch Pipeline (Broadband)
+## Post-Stretch Pipeline
 
-After any stretch method (autostretch or veralux), broadband images go through the same post-processing pipeline via `_apply_post_stretch` in `compose_broadband.py`:
+Broadband and narrowband perform color removal and optional background
+neutralization before calling `finish_stretched_image()` in `stretch_helpers.py`.
+It applies optional VeraLux Curves to VeraLux variants, then Siril saturation
+(unless Vectra is enabled), Revela, and Vectra. The starless export is finished
+before StarComposer adds stars. Requested failures raise instead of leaving
+unprocessed images labeled as successful results.
 
-1. Color cast removal (SCNR)
-2. Background color neutralization
-3. Saturation adjustment
-4. VeraLux enhancements (Revela, Vectra)
-
-The stretch method only affects tone mapping. Post-stretch processing is always the same regardless of which stretch was used.
+The Curves port supports the upstream shared RGB/K curve and its brightness-range
+mask. Individual RGB, Lab and HSV controls and the GUI are omitted. See
+[the reference and controls](veralux.md#finishing-curves).

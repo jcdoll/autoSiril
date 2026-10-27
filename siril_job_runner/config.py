@@ -9,6 +9,7 @@ Override precedence: DEFAULTS <- settings.json <- job.json options
 
 from dataclasses import dataclass, fields, replace
 from enum import StrEnum
+from math import isfinite
 from typing import Optional
 
 
@@ -105,7 +106,7 @@ class Config:
 
     # VeraLux HyperMetric Stretch parameters
     # Based on https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/
-    veralux_target_median: float = 0.20  # Target background median after stretch
+    veralux_target_median: float = 0.12  # Darker presentation than upstream's 0.20
     veralux_adaptive_anchor: bool = True  # Estimate black point from histogram shape
     veralux_b: float = 6.0  # Highlight protection / curve knee (higher preserves stars)
     veralux_log_d_min: float = 0.0  # Min log_d for binary search (D = 10^log_d)
@@ -116,6 +117,12 @@ class Config:
     # Hybrid mode parameters (RTU defaults: grip=1.0, shadow=0.0 means no hybrid)
     veralux_color_grip: float = 1.0  # Vector vs scalar blend 0.4-1.0 (1.0=pure vector)
     veralux_shadow_convergence: float = 0.0  # Shadow damping 0-3 (0=off)
+
+    # VeraLux Curves RGB/K: identical per-channel curve, after LRGB/palette assembly.
+    # Identity leaves the image unchanged. Only applied to VeraLux output variants.
+    veralux_curves_points: tuple[tuple[float, float], ...] = ((0.0, 0.0), (1.0, 1.0))
+    veralux_curves_range: tuple[float, float] = (0.0, 1.0)  # Mean RGB brightness
+    veralux_curves_feather: float = 0.25  # Upstream sigmoid width; 0 is a hard mask
 
     # VeraLux Revela - Detail enhancement (ATWT wavelets)
     veralux_revela_enabled: bool = True
@@ -357,6 +364,24 @@ class Config:
     spcc_bgtol_upper: float = 2.0
     spcc_bgtol_lower: float = 2.8  # Specified as positive, means -2.8 sigma
     spcc_obsheight: int = 1000  # Observation height in meters
+
+    def __post_init__(self) -> None:
+        """Reject invalid finishing curves before starting an expensive job."""
+        points = tuple(
+            sorted((float(x), float(y)) for x, y in self.veralux_curves_points)
+        )
+        if len(points) < 2 or any(
+            not isfinite(v) or not 0 <= v <= 1 for point in points for v in point
+        ):
+            raise ValueError("VeraLux curve needs at least two finite points in [0, 1]")
+        if any(a[0] >= b[0] for a, b in zip(points, points[1:], strict=False)):
+            raise ValueError("VeraLux curve input coordinates must be distinct")
+        low, high = self.veralux_curves_range
+        if not (0 <= low < high <= 1):
+            raise ValueError("VeraLux curve range must satisfy 0 <= low < high <= 1")
+        if not isfinite(self.veralux_curves_feather) or self.veralux_curves_feather < 0:
+            raise ValueError("VeraLux curve feather must be finite and nonnegative")
+        self.veralux_curves_points = points
 
 
 # Default configuration instance

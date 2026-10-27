@@ -234,7 +234,7 @@ def apply_deconvolution(
         psf_suffix: Suffix for PSF filename (e.g., "rgb", "L", "sho")
 
     Returns:
-        Name of result image (output_name if successful, source_name if failed)
+        Name of the saved result; raises if requested deconvolution fails.
     """
     if not siril.load(source_name):
         raise RuntimeError("Siril load failed during composition")
@@ -264,8 +264,6 @@ def apply_deconvolution(
                 raise RuntimeError("Siril save failed during composition")
             return output_name
 
-        log_fn("Deconvolution failed, using original")
+        raise RuntimeError("Deconvolution failed during composition")
     else:
-        log_fn("PSF creation failed, skipping deconvolution")
-
-    return source_name
+        raise RuntimeError("PSF creation failed; requested deconvolution cannot run")

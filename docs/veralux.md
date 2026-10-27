@@ -11,6 +11,7 @@ https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/
 | Module | Reference | Type |
 |--------|-----------|------|
 | veralux_stretch.py | [VeraLux_HyperMetric_Stretch.py](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_HyperMetric_Stretch.py) | Ported script |
+| veralux_curves.py | [VeraLux_Curves.py](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Curves.py) | RGB/K curve and range mask |
 | veralux_revela.py | [VeraLux_Revela.py](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Revela.py) | Ported script |
 | veralux_vectra.py | [VeraLux_Vectra.py](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Vectra.py) | Ported script |
 | veralux_silentium.py | [VeraLux_Silentium.py](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Silentium.py) | Ported script |
@@ -21,7 +22,7 @@ https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/
 
 ## Self-Containment Rule
 
-The five ported script modules are intentionally self-contained. Algorithmic functions (stretch math, noise estimation, signal masks, etc.) are kept within each module even when similar logic exists elsewhere. This allows independent validation of each module against the upstream reference implementation.
+The ported script modules are intentionally self-contained. Algorithmic functions (stretch math, noise estimation, signal masks, etc.) are kept within each module even when similar logic exists elsewhere. This allows independent validation of each module against the upstream reference implementation.
 
 Do not extract or share algorithmic code across VeraLux modules. If two modules have similar helper functions (e.g., `_compute_signal_mask` in both revela and vectra), that duplication is intentional.
 
@@ -56,7 +57,9 @@ LRGB reports the existing `rgb_linear.fit` as its linear RGB product.
 
 ## License
 
-The original VeraLux code is licensed under GPL-3.0-or-later.
+The VeraLux-derived modules retain the upstream GPL-3.0-or-later license.
+Package metadata lists both MIT and GPL-3.0-or-later; the project's MIT label
+does not replace the license of those modules.
 
 ## Upstream behavior and justified differences
 
@@ -154,11 +157,12 @@ settings, not equivalence to the upstream GUI defaults.
 
 ## Upstream defaults
 
-The shared defaults follow the controls in the upstream versions linked above:
+The shared controls follow the upstream versions linked above, except the
+darker HyperMetric target selected from image comparisons:
 
 | Control | Default |
 |---------|---------|
-| HyperMetric target background | 0.20 |
+| HyperMetric target background | 0.12 (upstream: 0.20) |
 | HyperMetric black-point estimate | Adaptive histogram |
 | VeraLux brightness weights (stretching and star recombination) | Rec.709 |
 | Revela texture / structure / shadow authority | 0 / 0 / 33 |
@@ -223,7 +227,8 @@ IC1396 also has an adaptive-only trial at target 0.20. Its change is subtle;
 the three unaffected JPEG variants are identical. Full upstream settings reduce
 colored grain but soften fine texture. Major dust-lane boundaries remain visible.
 The existing gray background and circular star-removal remnants remain; adaptive
-estimation does not remove them. IC1396 keeps the upstream defaults.
+estimation does not remove them. That trial kept the upstream defaults; the later finishing comparison below
+addresses the raised gray background.
 
 For M31 and M42, target 0.20 exposes more outer material but raises the background
 and weakens visible contrast around the bright centers. Controlled target-only
@@ -252,3 +257,61 @@ exactly matches the full pipeline's FITS pixels in all three autostretch variant
 The comparison includes both methods rather than treating autostretch as
 unchanged. Source stacks and prior working images are preserved, and the trial
 images await user review.
+
+## Finishing curves
+
+`veralux_target_median` sets HyperMetric's overall brightness target. The shared
+value is 0.12 instead of upstream's 0.20: the six-target comparison exposed gray
+backgrounds and more visible colored noise at the higher target. Lowering it also
+darkens faint material; it is a presentation choice, not noise removal. M31/M42
+retain their explicit 0.15 targets, and M33/NGC4244 retain 0.10.
+
+For selective tonal changes, the port uses [VeraLux Curves 1.0.1](https://gitlab.com/free-astro/siril-scripts/-/blob/main/VeraLux/VeraLux_Curves.py)'s
+RGB/K curve. It applies the same curve separately to each RGB channel, after
+RGB/LRGB or palette assembly and before detail and saturation finishing.
+This can change color as well as brightness. It does not recalibrate SPCC.
+
+See the [finishing comparison](finishing-review.md) for the six-target evidence,
+an optional curve example, the autostretch control and the rejected palette
+experiment. No supplied job enables a curve without a target-specific decision.
+
+| Job option | Meaning | Default |
+|------------|---------|---------|
+| `veralux_curves_points` | Input/output pairs on a normalized 0-1 scale | `[[0, 0], [1, 1]]` (identity) |
+| `veralux_curves_range` | Lower/upper mean-RGB brightness for the mask | `[0, 1]` (whole image) |
+| `veralux_curves_feather` | Width of the mask's soft transitions | `0.25`; `0` gives a hard range |
+
+Identity leaves pixels unchanged and needs no separate enable switch. An optional
+job override can lift selected midtones while leaving shadows and highlights
+closer to the baseline. The range is a brightness selection, not a sky/nebula
+classifier: faint dust and sky can overlap in brightness.
+
+The port retains upstream's 65,536-entry Akima lookup table and interpolation
+through that table, constant values outside the first/last control points,
+and LUT clipping to [0, 1]. The mask uses arithmetic mean RGB with sigmoid
+steepness 2.5; overlapping lower/upper transitions use their minimum. These
+are separate from HyperMetric's Rec.709 weights and SPCC's sensor response.
+Akima is not guaranteed to remain monotonic or avoid overshoot. Control points
+must be finite, within [0, 1], and have distinct input coordinates. Invalid
+points are rejected instead of silently moving or clipping their coordinates.
+
+Only RGB/K and its range mask are ported: they address this brightness-control
+request without adding the GUI or OpenCV-dependent Lab/HSV adjustments. Curves
+is restricted to VeraLux variants so autostretch remains an independent
+comparison. Upstream Curves itself can process any stretched RGB image; this
+restriction is a pipeline choice, not part of its mathematics.
+
+HyperMetric, Curves, Revela, Vectra, Silentium and StarComposer keep working FITS
+pixels in float32. Previously several stages rounded them to 16-bit integers,
+losing faint differences before later processing. FITS clipping diagnostics now
+recognize floating-point data regardless of its byte order.
+
+## Remaining upstream capabilities
+
+The pipeline is a selection of VeraLux algorithms, not the entire interactive
+suite. Nox is not included: Siril background extraction already fills that role;
+a replacement needs a gradient-specific comparison. Silentium uses the documented
+no-star-list path above. StarComposer healing, erosion and large-feature rejection
+are omitted and disabled upstream by default. None is enabled to conceal existing
+broad halos or star-removal remnants. Scientific HyperMetric mode and individual
+Curves channels are outside this automated finishing path.

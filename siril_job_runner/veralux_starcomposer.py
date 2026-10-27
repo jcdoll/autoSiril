@@ -401,7 +401,7 @@ def apply_starcomposer(
     )
 
     output_path = starless_path.parent / f"{starless_path.stem}_stars.fit"
-    out_data = np.clip(composed * 65535, 0, 65535).astype(np.uint16)
+    out_data = np.clip(composed, 0, 1).astype(np.float32)
     hdu = fits.PrimaryHDU(out_data, header=header)
     hdu.writeto(output_path, overwrite=True)
 
